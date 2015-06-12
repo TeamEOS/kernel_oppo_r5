@@ -584,6 +584,8 @@
 			 <&clock_cpu clk_a53ssmux_lc>,
 			 <&clock_cpu clk_a53ssmux_lc>,
 			 <&clock_cpu clk_a53ssmux_cci>;
+
+		qcom,tz-flushes-cache;
 	};
 
 	qcom,cpu-sleep-status@b088008{

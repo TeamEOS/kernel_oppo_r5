@@ -28,6 +28,11 @@
 #include "mdss_panel.h"
 #include "mdss_debug.h"
 
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/08/25  Add for crash when set brightness */
+#include <mach/oppo_project.h>
+#endif /*VENDOR_EDIT*/
+
 #define VSYNC_PERIOD 17
 
 struct mdss_dsi_ctrl_pdata *ctrl_list[DSI_CTRL_MAX];
@@ -397,7 +402,7 @@ void mdss_dsi_set_tx_power_mode(int mode, struct mdss_panel_data *pdata)
 	MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x3c, data);
 }
 
-void mdss_dsi_sw_reset(struct mdss_panel_data *pdata)
+void mdss_dsi_sw_reset(struct mdss_panel_data *pdata, bool restore)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 	u32 dsi_ctrl;
@@ -423,6 +428,12 @@ void mdss_dsi_sw_reset(struct mdss_panel_data *pdata)
 	wmb();
 	MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x118, 0x00);
 	wmb();
+
+	if (restore) {
+		/*Ensure DSI_CTRL is enabled*/
+		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x0004, (dsi_ctrl | 0x01));
+		wmb();
+	}
 }
 
 void mdss_dsi_sw_reset_restore(struct mdss_dsi_ctrl_pdata *ctrl)
@@ -508,7 +519,7 @@ void mdss_dsi_controller_cfg(int enable,
 			       sleep_us, timeout_us)) {
 		pr_debug("%s: DSI status=%x\n", __func__, status);
 		pr_debug("%s: Doing sw reset\n", __func__);
-		mdss_dsi_sw_reset(pdata);
+		mdss_dsi_sw_reset(pdata, false);
 	}
 
 	dsi_ctrl = MIPI_INP((ctrl_pdata->ctrl_base) + 0x0004);
@@ -1336,7 +1347,11 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	 * also, axi bus bandwidth need since dsi controller will
 	 * fetch dcs commands from axi bus
 	 */
-	mdss_bus_bandwidth_ctrl(1);
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/08/25  Add for crash when set brightness */
+	if (is_project(OPPO_14005))
+		mdss_bus_bandwidth_ctrl(1);
+#endif /*VENDOR_EDIT*/
 	mdss_bus_scale_set_quota(MDSS_HW_DSI0, SZ_1M, 0, SZ_1M);
 
 	pr_debug("%s:  from_mdp=%d pid=%d\n", __func__, from_mdp, current->pid);
@@ -1355,7 +1370,11 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	mdss_iommu_ctrl(0);
 	mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 0);
 	mdss_bus_scale_set_quota(MDSS_HW_DSI0, 0, 0, 0);
-	mdss_bus_bandwidth_ctrl(0);
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/08/25  Add for crash when set brightness */
+	if (is_project(OPPO_14005))
+		mdss_bus_bandwidth_ctrl(0);
+#endif /*VENDOR_EDIT*/
 need_lock:
 
 	if (from_mdp) /* from pipe_commit */
@@ -1426,9 +1445,15 @@ static int dsi_event_thread(void *data)
 				ctrl->recovery->fxn(ctrl->recovery->data);
 			}
 		}
-
+#ifdef VENDOR_EDIT //Modify by Tong.han@Bsp.group.TP.BL 2014-9-30 ,for 14043 screen blink
+	if(!is_project(OPPO_14043)){
 		if (todo & DSI_EV_DSI_FIFO_EMPTY)
 			mdss_dsi_sw_reset_restore(ctrl);
+	}
+#else
+	if (todo & DSI_EV_DSI_FIFO_EMPTY)
+		mdss_dsi_sw_reset_restore(ctrl);
+#endif/*VENDOR_EDIT*/
 
 		if (todo & DSI_EV_MDP_BUSY_RELEASE) {
 			spin_lock_irqsave(&ctrl->mdp_lock, flag);
@@ -1510,8 +1535,16 @@ void mdss_dsi_fifo_status(struct mdss_dsi_ctrl_pdata *ctrl)
 			dsi_send_events(ctrl, DSI_EV_MDP_FIFO_UNDERFLOW);
 			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0", "dsi1",
 						"edp", "hdmi", "panic");
+#ifdef VENDOR_EDIT //Modify by Tong.han@Bsp.group.TP.BL 2014-9-30 ,for 14043 screen blink
+		if(!is_project(OPPO_14043)){
+			if (status & 0x11110000) /* DLN_FIFO_EMPTY */
+				dsi_send_events(ctrl, DSI_EV_DSI_FIFO_EMPTY);
+		}
+#else
 		if (status & 0x11110000) /* DLN_FIFO_EMPTY */
 			dsi_send_events(ctrl, DSI_EV_DSI_FIFO_EMPTY);
+#endif/*VENDOR_EDIT*/
+
 	}
 }
 

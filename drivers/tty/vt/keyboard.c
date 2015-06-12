@@ -395,7 +395,7 @@ static void do_compute_shiftstate(void)
 			val = KVAL(sym);
 			if (val == KVAL(K_CAPSSHIFT))
 				val = KVAL(K_SHIFT);
-
+			BUG_ON(val >= NR_SHIFT);
 			shift_down[val]++;
 			shift_state |= (1 << val);
 		}
@@ -815,6 +815,7 @@ static void k_shift(struct vc_data *vc, unsigned char value, char up_flag)
 			clr_vc_kbd_led(kbd, VC_CAPSLOCK);
 	}
 
+	BUG_ON(value >= NR_SHIFT);
 	if (up_flag) {
 		/*
 		 * handle the case that two shift or control
@@ -1319,6 +1320,7 @@ static void kbd_keycode(unsigned int keycode, int down, int hw_raw)
 	}
 
 	param.shift = shift_final = (shift_state | kbd->slockstate) ^ kbd->lockstate;
+	BUG_ON(shift_final >= MAX_NR_KEYMAPS);
 	param.ledstate = kbd->ledflagstate;
 	key_map = key_maps[shift_final];
 

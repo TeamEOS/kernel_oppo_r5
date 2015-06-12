@@ -52,6 +52,9 @@
 
 #include <linux/msm-bus.h>
 
+#ifdef VENDOR_EDIT	//Fuchun.Liao 2014-09-19 add
+#include <mach/oppo_project.h>
+#endif
 #define MSM_USB_BASE	(motg->regs)
 #define DRIVER_NAME	"msm_otg"
 
@@ -91,7 +94,11 @@ module_param(lpm_disconnect_thresh , uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(lpm_disconnect_thresh,
 	"Delay before entering LPM on USB disconnect");
 
+#ifndef VENDOR_EDIT
 static bool floated_charger_enable;
+#else
+static bool floated_charger_enable = 1;
+#endif
 module_param(floated_charger_enable , bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(floated_charger_enable,
 	"Whether to enable floated charger");
@@ -1514,7 +1521,12 @@ static int msm_otg_notify_power_supply(struct msm_otg *motg, unsigned mA)
 			goto psy_error;
 		if (power_supply_set_current_limit(psy, 1000*mA))
 			goto psy_error;
+#ifndef VENDOR_EDIT
+//Shu.Liu@OnlineRd.Driver, 2014/09/03, Added for fixing the disconnect issue swtich the charger and the mtp
 	} else if (motg->cur_power > 0 && (mA == 0 || mA == 2)) {
+#else
+	} else if (motg->cur_power > 0 && (mA == 0 || mA == 2) && (motg->chg_type == USB_INVALID_CHARGER)){
+#endif /*VENDOR_EDIT*/
 		/* Disable charging */
 		if (power_supply_set_online(psy, false))
 			goto psy_error;
@@ -2628,7 +2640,7 @@ static void msm_chg_detect_work(struct work_struct *w)
 		if (aca_enabled())
 			udelay(100);
 		msm_chg_enable_aca_intr(motg);
-		dev_dbg(phy->dev, "chg_type = %s\n",
+		dev_err(phy->dev, "chg_type = %s\n",
 			chg_to_string(motg->chg_type));
 		queue_work(system_nrt_wq, &motg->sm_work);
 		return;
@@ -2678,7 +2690,8 @@ static void msm_otg_init_sm(struct msm_otg *motg)
 			else
 				clear_bit(B_SESS_VLD, &motg->inputs);
 		} else if (pdata->otg_control == OTG_PMIC_CONTROL) {
-			if (pdata->pmic_id_irq) {
+
+            if (pdata->pmic_id_irq) {
 				if (msm_otg_read_pmic_id_state(motg))
 					set_bit(ID, &motg->inputs);
 				else
@@ -2689,6 +2702,7 @@ static void msm_otg_init_sm(struct msm_otg *motg)
 				else
 					clear_bit(ID, &motg->inputs);
 			}
+
 			/*
 			 * VBUS initial state is reported after PMIC
 			 * driver initialization. Wait for it.
@@ -2836,13 +2850,33 @@ static void msm_otg_sm_work(struct work_struct *w)
 					}
 					/* fall through */
 				case USB_PROPRIETARY_CHARGER:
-					msm_otg_notify_charger(motg,
-							IDEV_CHG_MAX);
+#ifndef VENDOR_EDIT		//Fuchun.Liao@Mobile.BSP.CHG 2014-09-19 modify 14037 chg_current to 2A
+					msm_otg_notify_charger(motg,IDEV_CHG_MAX);
+#else
+					if(is_project(14037))
+						msm_otg_notify_charger(motg,IDEV_CHG_MAX_2000MA);
+					else 
+						msm_otg_notify_charger(motg,IDEV_CHG_MAX);
+#endif
 					pm_runtime_put_sync(otg->phy->dev);
 					break;
 				case USB_FLOATED_CHARGER:
+				    #ifndef VENDOR_EDIT
+					////Fuchun.Liao@Mobile.BSP.CHG 2014-09-19 modify 14037 chg_current to 2A
 					msm_otg_notify_charger(motg,
 							IDEV_CHG_MAX);
+					#else
+					if(is_project(14005)|| is_project(14023))
+					{
+						msm_otg_notify_charger(motg,
+								IDEV_CHG_MAX);
+					}
+					else
+					{
+						msm_otg_notify_charger(motg,
+								IDEV_CHG_MIN);
+					}
+					#endif
 					pm_runtime_put_noidle(otg->phy->dev);
 					pm_runtime_suspend(otg->phy->dev);
 					break;
@@ -4496,6 +4530,7 @@ struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
 		pr_err("unable to allocate platform data\n");
 		return NULL;
 	}
+#ifndef VENDOR_EDIT //Jianfeng.Qiu@BSP.Driver, 2014-09-28, Modify for support parameters with usb switch
 	of_get_property(node, "qcom,hsusb-otg-phy-init-seq", &len);
 	if (len) {
 		pdata->phy_init_seq = devm_kzalloc(&pdev->dev, len, GFP_KERNEL);
@@ -4505,6 +4540,49 @@ struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
 				pdata->phy_init_seq,
 				len/sizeof(*pdata->phy_init_seq));
 	}
+#else /* VENDOR_EDIT */
+	if(is_project(OPPO_14043)) {
+		switch (get_PCB_Version()) {
+			case HW_VERSION__10:
+			case HW_VERSION__11:
+			case HW_VERSION__12:
+			case HW_VERSION__13:
+				of_get_property(node, "qcom,hsusb-otg-phy-init-seq-usb-switch", &len);
+				if (len) {
+					pdata->phy_init_seq = devm_kzalloc(&pdev->dev, len, GFP_KERNEL);
+					if (!pdata->phy_init_seq)
+						return NULL;
+					of_property_read_u32_array(node, "qcom,hsusb-otg-phy-init-seq-usb-switch",
+							pdata->phy_init_seq,
+							len/sizeof(*pdata->phy_init_seq));
+					break;
+				}
+				//or else pass through, parse "qcom,hsusb-otg-phy-init-seq"
+			case HW_VERSION__14:
+			default:
+				of_get_property(node, "qcom,hsusb-otg-phy-init-seq", &len);
+				if (len) {
+					pdata->phy_init_seq = devm_kzalloc(&pdev->dev, len, GFP_KERNEL);
+					if (!pdata->phy_init_seq)
+						return NULL;
+					of_property_read_u32_array(node, "qcom,hsusb-otg-phy-init-seq",
+							pdata->phy_init_seq,
+							len/sizeof(*pdata->phy_init_seq));
+				}
+				break;
+		}
+	} else {
+		of_get_property(node, "qcom,hsusb-otg-phy-init-seq", &len);
+		if (len) {
+			pdata->phy_init_seq = devm_kzalloc(&pdev->dev, len, GFP_KERNEL);
+			if (!pdata->phy_init_seq)
+				return NULL;
+			of_property_read_u32_array(node, "qcom,hsusb-otg-phy-init-seq",
+					pdata->phy_init_seq,
+					len/sizeof(*pdata->phy_init_seq));
+		}	
+	}
+#endif /* VENDOR_EDIT */
 	of_property_read_u32(node, "qcom,hsusb-otg-power-budget",
 				&pdata->power_budget);
 	of_property_read_u32(node, "qcom,hsusb-otg-mode",
@@ -4989,7 +5067,7 @@ static int msm_otg_probe(struct platform_device *pdev)
 			"not available\n");
 
 	if (motg->pdata->phy_type == SNPS_28NM_INTEGRATED_PHY) {
-		if (motg->pdata->otg_control == OTG_PMIC_CONTROL &&
+        if (motg->pdata->otg_control == OTG_PMIC_CONTROL &&
 			(!(motg->pdata->mode == USB_OTG) ||
 			 motg->pdata->pmic_id_irq || motg->ext_id_irq))
 			motg->caps = ALLOW_PHY_POWER_COLLAPSE |

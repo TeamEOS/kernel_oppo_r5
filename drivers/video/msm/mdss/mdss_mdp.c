@@ -49,6 +49,9 @@
 #include <linux/msm_iommu_domains.h>
 #include <mach/memory.h>
 #include <mach/msm_memtypes.h>
+#ifdef VENDOR_EDIT/* Xiaori.yuan@PhoneSW.Multimedia, 2014/10/15  Add for erase Powerd by android */
+#include <mach/oppo_project.h>
+#endif /*CONFIG_VENDOR_EDIT*/
 
 #include "mdss.h"
 #include "mdss_fb.h"
@@ -713,15 +716,34 @@ int mdss_iommu_ctrl(int enable)
 		__builtin_return_address(0), enable, mdata->iommu_ref_cnt);
 
 	if (enable) {
-
-		if (mdata->iommu_ref_cnt == 0)
-			rc = mdss_iommu_attach(mdata);
+		#ifdef VENDOR_EDIT
+		//wenhua.Leng@MultiMedia.display add for iommu issue at 2014-11-03
+		if(is_project(14005)){
+			if (mdata->iommu_ref_cnt == 0){
+				mdss_bus_scale_set_quota(MDSS_HW_IOMMU, SZ_1M, 0, SZ_1M);
+				rc = mdss_iommu_attach(mdata);
+			}
+		}else{
+			if (mdata->iommu_ref_cnt == 0)
+				rc = mdss_iommu_attach(mdata);
+		}
+		#endif /*VENDOR_EDIT*/
 		mdata->iommu_ref_cnt++;
 	} else {
 		if (mdata->iommu_ref_cnt) {
 			mdata->iommu_ref_cnt--;
-			if (mdata->iommu_ref_cnt == 0)
-				rc = mdss_iommu_dettach(mdata);
+			#ifdef VENDOR_EDIT
+			//wenhua.Leng@MultiMedia.display add for iommu issue at 2014-11-03
+			if(is_project(14005)){
+				if (mdata->iommu_ref_cnt == 0){
+					rc = mdss_iommu_dettach(mdata);
+					mdss_bus_scale_set_quota(MDSS_HW_IOMMU, 0, 0, 0);
+				}
+			}else{
+				if (mdata->iommu_ref_cnt == 0)
+					rc = mdss_iommu_dettach(mdata);
+			}
+			#endif /*VENDOR_EDIT*/
 		} else {
 			pr_err("unbalanced iommu ref\n");
 		}
@@ -1551,7 +1573,18 @@ probe_done:
 		mutex_destroy(&mdata->reg_lock);
 		mdss_res = NULL;
 	}
-
+#ifdef VENDOR_EDIT/* Xiaori.yuan@PhoneSW.Multimedia, 2014/10/15  Add for erase Powerd by android */
+#ifndef OPPO_CMCC_TEST
+	pr_err("erase Powerd by android\n");
+	if(is_project(OPPO_14005)){
+		memset(phys_to_virt(0x83200000 + 1520*1080*3), 0x00, 400*1080*3);
+		writel_relaxed(1, (char *)0xf070201c);
+	}
+	if(is_project(OPPO_14045) || is_project(OPPO_14051)){
+		memset(phys_to_virt(0x83200000 + 1080*720*3), 0x00, 200*720*3);
+	}
+#endif
+#endif /*CONFIG_VENDOR_EDIT*/
 	return rc;
 }
 
@@ -2551,6 +2584,19 @@ static int mdss_mdp_parse_dt_misc(struct platform_device *pdev)
 	mdata->ib_factor_overlap.denom = mdata->ib_factor.denom;
 	mdss_mdp_parse_dt_fudge_factors(pdev, "qcom,mdss-ib-factor-overlap",
 		&mdata->ib_factor_overlap);
+
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/09/22  Add for 14005 performance */
+	/*
+	 * 1x factor on ib_factor_cmd as default value. This value is
+	 * experimentally determined and should be tuned in device
+	 * tree.
+	 */
+	mdata->ib_factor_cmd.numer = 1;
+	mdata->ib_factor_cmd.denom = 1;
+	mdss_mdp_parse_dt_fudge_factors(pdev, "qcom,mdss-ib-factor-cmd",
+		&mdata->ib_factor_cmd);
+#endif /*VENDOR_EDIT*/
 
 	mdata->clk_factor.numer = 1;
 	mdata->clk_factor.denom = 1;

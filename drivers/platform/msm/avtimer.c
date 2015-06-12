@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
 
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License version 2 and
@@ -263,12 +263,10 @@ done:
 	return rc;
 }
 EXPORT_SYMBOL(avcs_core_disable_power_collapse);
-
 int avcs_core_query_timer(uint64_t *avtimer_tick)
 {
 	int ret = 0;
 	uint32_t avtimer_msw = 0, avtimer_lsw = 0;
-
 	if (!atomic_read(&avtimer.adsp_ready)) {
 		if (q6core_is_adsp_ready()) {
 			ret = avcs_core_disable_power_collapse(1);
@@ -280,7 +278,6 @@ int avcs_core_query_timer(uint64_t *avtimer_tick)
 	}
 	avtimer_msw = ioread32(avtimer.p_avtimer_msw);
 	avtimer_lsw = ioread32(avtimer.p_avtimer_lsw);
-
 	avtimer_lsw = avtimer_lsw/avtimer.clk_div;
 	*avtimer_tick =
 		(uint64_t)((uint64_t)avtimer_msw << 32)
@@ -435,7 +432,6 @@ static int dev_avtimer_probe(struct platform_device *pdev)
 		avtimer.clk_div = 1;
 	else
 		avtimer.clk_div = clk_div_val;
-
 	pr_debug("avtimer.clk_div = %d\n", avtimer.clk_div);
 	return 0;
 

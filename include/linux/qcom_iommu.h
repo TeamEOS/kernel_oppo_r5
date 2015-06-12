@@ -130,7 +130,6 @@ struct msm_iommu_drvdata {
 	struct list_head list;
 	void __iomem *clk_reg_virt;
 	int halt_enabled;
-	int *asid;
 	unsigned int ctx_attach_count;
 	unsigned int bus_client;
 	int needs_rem_spinlock;

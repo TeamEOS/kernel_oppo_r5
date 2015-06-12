@@ -105,6 +105,7 @@ enum mdss_hw_index {
 	MDSS_HW_DSI1,
 	MDSS_HW_HDMI,
 	MDSS_HW_EDP,
+	MDSS_HW_IOMMU,
 	MDSS_MAX_HW_BLK
 };
 
@@ -173,6 +174,10 @@ struct mdss_data_type {
 	struct mdss_fudge_factor ab_factor;
 	struct mdss_fudge_factor ib_factor;
 	struct mdss_fudge_factor ib_factor_overlap;
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/09/22  Add for 14005 performance */
+	struct mdss_fudge_factor ib_factor_cmd;
+#endif /*VENDOR_EDIT*/
 	struct mdss_fudge_factor clk_factor;
 
 	u32 *clock_levels;

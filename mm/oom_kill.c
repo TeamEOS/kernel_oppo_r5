@@ -348,7 +348,12 @@ static void dump_tasks(const struct mem_cgroup *memcg, const nodemask_t *nodemas
 	struct task_struct *p;
 	struct task_struct *task;
 
+#ifdef VENDOR_EDIT
+//tanggeliang@Swdp.Android.Kernel, 2014/11/13
+	pr_info("[ pid ]   ppid  rppid  uid  tgid total_vm      rss nr_ptes swapents oom_score_adj name\n");
+#else
 	pr_info("[ pid ]   uid  tgid total_vm      rss nr_ptes swapents oom_score_adj name\n");
+#endif /* VENDOR_EDIT */
 	rcu_read_lock();
 	for_each_process(p) {
 		if (oom_unkillable_task(p, memcg, nodemask))
@@ -364,12 +369,22 @@ static void dump_tasks(const struct mem_cgroup *memcg, const nodemask_t *nodemas
 			continue;
 		}
 
+#ifdef VENDOR_EDIT
+//tanggeliang@Swdp.Android.Kernel, 2014/11/13
+		pr_info("[%5d] %5d %5d %5d %5d %8lu %8lu %7lu %8lu         %5hd %s\n",
+			task->pid, task->parent->pid, task->real_parent->pid, from_kuid(&init_user_ns, task_uid(task)),
+			task->tgid, task->mm->total_vm, get_mm_rss(task->mm),
+			task->mm->nr_ptes,
+			get_mm_counter(task->mm, MM_SWAPENTS),
+			task->signal->oom_score_adj, task->comm);
+#else
 		pr_info("[%5d] %5d %5d %8lu %8lu %7lu %8lu         %5hd %s\n",
 			task->pid, from_kuid(&init_user_ns, task_uid(task)),
 			task->tgid, task->mm->total_vm, get_mm_rss(task->mm),
 			task->mm->nr_ptes,
 			get_mm_counter(task->mm, MM_SWAPENTS),
 			task->signal->oom_score_adj, task->comm);
+#endif /* VENDOR_EDIT */
 		task_unlock(task);
 	}
 	rcu_read_unlock();

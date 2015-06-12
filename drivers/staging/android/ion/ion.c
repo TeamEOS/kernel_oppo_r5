@@ -465,8 +465,10 @@ static int ion_handle_add(struct ion_client *client, struct ion_handle *handle)
 			p = &(*p)->rb_left;
 		else if (handle->buffer > entry->buffer)
 			p = &(*p)->rb_right;
-		else
+		else {
 			WARN(1, "%s: buffer already found.", __func__);
+			return -EINVAL;
+		}
 	}
 
 	rb_link_node(&handle->node, parent, p);

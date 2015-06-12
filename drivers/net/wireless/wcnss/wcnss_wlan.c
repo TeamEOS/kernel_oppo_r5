@@ -52,6 +52,11 @@
 #define CTRL_DEVICE "wcnss_ctrl"
 #define VERSION "1.01"
 #define WCNSS_PIL_DEVICE "wcnss"
+/*OPPO qiulei 2013-10-28 add begin wifi_devinfo*/
+#ifdef VENDOR_EDIT 
+#include <mach/device_info.h>
+#endif /* VENDOR_EDIT */
+/*OPPO qiulei 2013-10-28 add end wifi_devinfo*/
 
 #define WCNSS_PINCTRL_STATE_DEFAULT "wcnss_default"
 #define WCNSS_PINCTRL_STATE_SLEEP "wcnss_sleep"
@@ -288,6 +293,14 @@ struct nvbin_dnld_req_params {
 	 */
 };
 
+/*OPPO qiulei 2013-10-24 add begin for wifi_devinfo*/
+#ifdef VENDOR_EDIT 
+struct manufacture_info wcn_info = {
+	.version = "wcn3620",
+	.manufacture = "Qualcomm",
+};
+#endif /* VENDOR_EDIT */
+/*OPPO qiulei 2013-10-24 add end for wifi_devinfo*/
 
 struct nvbin_dnld_req_msg {
 	/* Note: The length specified in nvbin_dnld_req_msg messages
@@ -350,6 +363,10 @@ static struct {
 	u32		wlan_rx_buff_count;
 	smd_channel_t	*smd_ch;
 	unsigned char	wcnss_version[WCNSS_VERSION_LEN];
+	#ifdef VENDOR_EDIT
+	//hedong.liu@Connectivity, 2014/07/03, Add for wcnss firmware version show
+	unsigned char	wcnss_build_version[WCNSS_MAX_BUILD_VER_LEN];
+	#endif /* VENDOR_EDIT */
 	unsigned char   fw_major;
 	unsigned char   fw_minor;
 	unsigned int	serial_number;
@@ -505,6 +522,22 @@ static ssize_t wcnss_thermal_mitigation_store(struct device *dev,
 		(penv->tm_notify)(dev, value);
 	return count;
 }
+#ifdef VENDOR_EDIT
+//hedong.liu@Connectivity, 2014/07/03, Add for wcnss firmware version show
+
+static ssize_t wcnss_buld_version_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	if (!penv)
+		return -ENODEV;
+
+	return scnprintf(buf, PAGE_SIZE, "%s\n", penv->wcnss_build_version);
+}
+
+static DEVICE_ATTR(wcnss_build_version, S_IRUSR,
+		wcnss_buld_version_show, NULL);
+    
+#endif /* VENDOR_EDIT */
 
 static DEVICE_ATTR(thermal_mitigation, S_IRUSR | S_IWUSR,
 	wcnss_thermal_mitigation_show, wcnss_thermal_mitigation_store);
@@ -1054,6 +1087,13 @@ static int wcnss_create_sysfs(struct device *dev)
 	ret = device_create_file(dev, &dev_attr_wcnss_mac_addr);
 	if (ret)
 		goto remove_version;
+		
+    #ifdef VENDOR_EDIT
+    //hedong.liu@Connectivity, 2014/07/03, Add for wcnss firmware version show 
+    ret = device_create_file(dev, &dev_attr_wcnss_build_version);
+	if (ret)
+		goto remove_thermal;
+    #endif /* VENDOR_EDIT */
 
 	return 0;
 
@@ -1074,6 +1114,10 @@ static void wcnss_remove_sysfs(struct device *dev)
 		device_remove_file(dev, &dev_attr_thermal_mitigation);
 		device_remove_file(dev, &dev_attr_wcnss_version);
 		device_remove_file(dev, &dev_attr_wcnss_mac_addr);
+		#ifdef VENDOR_EDIT
+		//hedong.liu@Connectivity, 2014/07/03, Add for wcnss firmware version show
+	    device_remove_file(dev, &dev_attr_wcnss_build_version);
+		#endif /* VENDOR_EDIT */
 	}
 }
 static void wcnss_smd_notify_event(void *data, unsigned int event)
@@ -1897,7 +1941,11 @@ static void wcnssctrl_rx_handler(struct work_struct *worker)
 	struct wcnss_version *pversion;
 	int hw_type;
 	unsigned char fw_status = 0;
-
+	#ifdef VENDOR_EDIT
+	//hedong.liu@Connectivity, 2014/07/03, Add for wcnss firmware version show
+	int i = 0 ;    
+	#endif /* VENDOR_EDIT */
+    
 	len = smd_read_avail(penv->smd_ch);
 	if (len > WCNSS_MAX_FRAME_SIZE) {
 		pr_err("wcnss: frame larger than the allowed size\n");
@@ -1982,6 +2030,12 @@ static void wcnssctrl_rx_handler(struct work_struct *worker)
 			return;
 		}
 		build[len] = 0;
+		#ifdef VENDOR_EDIT
+		//hedong.liu@Connectivity, 2014/07/03, Add for wcnss firmware version show 
+		for (i = 0 ; i <= len ; i ++)  
+		    penv->wcnss_build_version[i] = build[i];
+		#endif /* VENDOR_EDIT */
+		
 		pr_info("wcnss: build version %s\n", build);
 		break;
 
@@ -2707,7 +2761,7 @@ wcnss_trigger_config(struct platform_device *pdev)
 		}
 	} while (pil_retry++ < WCNSS_MAX_PIL_RETRY && IS_ERR(penv->pil));
 
-	if (IS_ERR(penv->pil)) {
+	if (pil_retry >= WCNSS_MAX_PIL_RETRY) {
 		wcnss_reset_intr();
 		if (penv->wcnss_notif_hdle)
 			subsys_notif_unregister_notifier(penv->wcnss_notif_hdle,
@@ -2924,6 +2978,11 @@ wcnss_wlan_probe(struct platform_device *pdev)
 
 	/* create an environment to track the device */
 	penv = devm_kzalloc(&pdev->dev, sizeof(*penv), GFP_KERNEL);
+	/*OPPO qiulei 2013-10-24 add begin for wifi_devinfo*/
+	#ifdef VENDOR_EDIT 
+	register_device_proc("wcn", wcn_info.version, wcn_info.manufacture);
+	#endif /* VENDOR_EDIT */
+   /*OPPO qiulei 2013-10-24 add end for wifi_devinfo*/
 	if (!penv) {
 		dev_err(&pdev->dev, "cannot allocate device memory.\n");
 		return -ENOMEM;

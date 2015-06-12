@@ -21,6 +21,11 @@
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
+#include <linux/irqnr.h>
+#include <linux/irqchip/chained_irq.h>
+#include <linux/irqdomain.h>
+#include <linux/irqchip/msm-mpm-irq.h>
+#include <linux/irq.h>
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/io.h>
@@ -413,6 +418,19 @@ static int i2c_msm_dbg_qup_reg_dump(struct i2c_msm_ctrl *ctrl)
 		dev_info(ctrl->dev, "%-12s:0x%08x %s\n", itr->name, val, buf);
 	};
 	return 0;
+}
+
+static void i2c_msm_dbg_xfer_irq(struct i2c_msm_ctrl *ctrl)
+{
+	struct i2c_msm_xfer *xfer = &ctrl->xfer;
+	struct irq_desc *desc = irq_to_desc(ctrl->rsrcs.irq);
+
+	if (!xfer->msgs) {
+		dev_info(ctrl->dev, "No active transfer\n");
+		return;
+	}
+
+	dev_info(ctrl->dev, "irq decs: 0x%x, 0x%x \n", (unsigned int)desc, (unsigned int)desc->irq_data.state_use_accessors);
 }
 
 static void i2c_msm_dbg_xfer_dump(struct i2c_msm_ctrl *ctrl)
@@ -2654,7 +2672,7 @@ static irqreturn_t i2c_msm_qup_isr(int irq, void *devid)
 								irq, 0, 0);
 
 	if (!atomic_read(&ctrl->xfer.is_active)) {
-		dev_info(ctrl->dev, "irq:%d when no active transfer\n", irq);
+		dev_err(ctrl->dev, "irq:%d when no active transfer\n", irq);
 		return IRQ_HANDLED;
 	}
 
@@ -3049,8 +3067,8 @@ static int i2c_msm_xfer_wait_for_completion(struct i2c_msm_ctrl *ctrl,
 	if (!time_left) {
 		i2c_msm_prof_evnt_add(ctrl, MSM_ERR, i2c_msm_prof_dump_cmplt_fl,
 					xfer->timeout, time_left, 0);
-
 		i2c_msm_dbg_xfer_dump(ctrl);
+		i2c_msm_dbg_xfer_irq(ctrl);
 		i2c_msm_dbg_qup_reg_dump(ctrl);
 		i2c_msm_dbg_inp_fifo_dump(ctrl);
 		xfer->err |= I2C_MSM_ERR_TIMEOUT;
@@ -3244,6 +3262,8 @@ static void i2c_msm_pm_xfer_end(struct i2c_msm_ctrl *ctrl)
 	struct i2c_msm_bam_pipe      *cons = &bam->pipe[I2C_MSM_BAM_CONS];
 
 	/* efectively disabling our ISR */
+	disable_irq(ctrl->rsrcs.irq);
+
 	atomic_set(&ctrl->xfer.is_active, 0);
 
 	if (cons->is_init)
@@ -3258,7 +3278,6 @@ static void i2c_msm_pm_xfer_end(struct i2c_msm_ctrl *ctrl)
 	} else {
 		i2c_msm_pm_suspend(ctrl->dev);
 	}
-	disable_irq(ctrl->rsrcs.irq);
 	mutex_unlock(&ctrl->xfer.mtx);
 }
 

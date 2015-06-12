@@ -27,6 +27,12 @@
 #include "mdss_mdp_trace.h"
 #include "mdss_debug.h"
 
+#ifdef VENDOR_EDIT
+/* Xinqin.Yang@PhoneSW.Multimedia, 2014/08/19  Add for 14023 project */
+#include <mach/oppo_project.h>
+#endif /*CONFIG_VENDOR_EDIT*/
+
+
 static void mdss_mdp_xlog_mixer_reg(struct mdss_mdp_ctl *ctl);
 static inline u64 fudge_factor(u64 val, u32 numer, u32 denom)
 {
@@ -937,6 +943,12 @@ static void mdss_mdp_perf_calc_ctl(struct mdss_mdp_ctl *ctl,
 		else
 			perf->bw_ctl = apply_fudge_factor(perf->bw_ctl,
 				&mdss_res->ib_factor);
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/09/22  Add for 14005 performance */
+	} else if (ctl->intf_num != MDSS_MDP_NO_INTF) {
+		perf->bw_ctl = apply_fudge_factor(perf->bw_ctl,
+			&mdss_res->ib_factor_cmd);
+#endif /*VENDOR_EDIT*/
 	}
 	pr_debug("ctl=%d clk_rate=%u\n", ctl->num, perf->mdp_clk_rate);
 	pr_debug("bw_overlap=%llu bw_prefill=%llu prefill_bytes=%d\n",
@@ -1109,6 +1121,15 @@ static inline void mdss_mdp_ctl_perf_update_bus(struct mdss_data_type *mdata,
 				ctl->cur_perf.bw_ctl);
 		}
 	}
+	
+#ifndef VENDOR_EDIT
+	//TODO:FIX-ME: set the min bandwidth of BIMC when MDP request, this can reduce wait_pingpong time consumption. 
+	/* wenhua.Leng@PhoneSW.Multimedia, 2014/09/04  a workround to resolve the performace issue */
+	if(is_project(OPPO_14005)){
+		mdata->perf_tune.min_bus_vote = 16000000000ll;
+	}
+#endif /*CONFIG_VENDOR_EDIT*/
+	
 	bw_sum_of_intfs_rt = max(bw_sum_of_intfs_rt,
 			mdata->perf_tune.min_bus_vote);
 	bus_ib_quota = bw_sum_of_intfs_rt + bw_sum_of_intfs_nrt;
@@ -2990,7 +3011,8 @@ int mdss_mdp_display_wait4pingpong(struct mdss_mdp_ctl *ctl)
 	return ret;
 }
 
-int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg)
+int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg,
+	struct mdss_mdp_commit_cb *commit_cb)
 {
 	struct mdss_mdp_ctl *sctl = NULL;
 	int ret = 0;
@@ -3049,15 +3071,6 @@ int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg)
 		ATRACE_END("mixer_programming");
 	}
 
-	ATRACE_BEGIN("frame_ready");
-	mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_READY);
-	ATRACE_END("frame_ready");
-
-	ATRACE_BEGIN("wait_pingpong");
-	if (ctl->wait_pingpong)
-		ctl->wait_pingpong(ctl, NULL);
-	ATRACE_END("wait_pingpong");
-
 	ctl->roi_bkup.w = ctl->roi.w;
 	ctl->roi_bkup.h = ctl->roi.h;
 
@@ -3072,6 +3085,32 @@ int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg)
 	}
 	ATRACE_END("postproc_programming");
 
+	mdss_mdp_xlog_mixer_reg(ctl);
+
+	ATRACE_BEGIN("frame_ready");
+	mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_CFG_DONE);
+	if (commit_cb)
+		commit_cb->commit_cb_fnc(
+			MDP_COMMIT_STAGE_SETUP_DONE,
+			commit_cb->data);
+	mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_READY);
+	ATRACE_END("frame_ready");
+
+	if (ctl->wait_pingpong) {
+		ATRACE_BEGIN("wait_pingpong");
+		ctl->wait_pingpong(ctl, NULL);
+		ATRACE_END("wait_pingpong");
+
+		if (sctl && sctl->wait_pingpong) {
+			ATRACE_BEGIN("wait_pingpong sctl");
+			sctl->wait_pingpong(sctl, NULL);
+			ATRACE_END("wait_pingpong sctl");
+		}
+	}
+	if (commit_cb)
+		commit_cb->commit_cb_fnc(MDP_COMMIT_STAGE_READY_FOR_KICKOFF,
+			commit_cb->data);
+
 	ATRACE_BEGIN("flush_kickoff");
 	mdss_mdp_ctl_write(ctl, MDSS_MDP_REG_CTL_FLUSH, ctl->flush_bits);
 	if (sctl && sctl->flush_bits) {
@@ -3083,10 +3122,9 @@ int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg)
 	ctl->flush_reg_data = ctl->flush_bits;
 	ctl->flush_bits = 0;
 
-	mdss_mdp_xlog_mixer_reg(ctl);
-
 	if (ctl->display_fnc)
 		ret = ctl->display_fnc(ctl, arg); /* kickoff */
+
 	if (ret)
 		pr_warn("error displaying frame\n");
 

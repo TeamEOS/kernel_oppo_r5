@@ -484,6 +484,10 @@ int mdss_mdp_overlay_pipe_setup(struct msm_fb_data_type *mfd,
 	bool is_vig_needed = false;
 	u32 left_lm_w = left_lm_w_from_mfd(mfd);
 	u32 flags = 0;
+//#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/07/21  Add for LCD rotate 180 degree */
+	struct fb_var_screeninfo *var = &(mfd->fbi->var);
+//#endif /*VENDOR_EDIT*/
 
 	if (mdp5_data->ctl == NULL)
 		return -ENODEV;
@@ -681,7 +685,20 @@ int mdss_mdp_overlay_pipe_setup(struct msm_fb_data_type *mfd,
 		mdss_mdp_mixer_pipe_unstage(pipe, pipe->mixer_right);
 		pipe->is_right_blend = false;
 	}
-
+//#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/07/21  Add for LCD rotate 180 degree */
+	if(mfd->is_panel_inverted) {		
+		if (req->flags & MDP_FLIP_LR)			
+			req->flags &= ~MDP_FLIP_LR;		
+		else			
+			req->flags |= MDP_FLIP_LR;		
+		if (req->flags & MDP_FLIP_UD)			
+			req->flags &= ~MDP_FLIP_UD;		
+		else			
+			req->flags |= MDP_FLIP_UD;		
+		pr_debug("Panel is inverted.. flags are %x\n", req->flags);	
+	}
+//#endif /*VENDOR_EDIT*/
 	if (mfd->panel_orientation)
 		req->flags ^= mfd->panel_orientation;
 
@@ -711,6 +728,14 @@ int mdss_mdp_overlay_pipe_setup(struct msm_fb_data_type *mfd,
 	if (mfd->panel_orientation & MDP_FLIP_UD)
 		pipe->dst.y = pipe->mixer_left->height
 			- pipe->dst.y - pipe->dst.h;
+
+//#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/07/21  Add for LCD rotate 180 degree */
+	if(mfd->is_panel_inverted) {		
+		pipe->dst.x = var->xres - pipe->dst.x - pipe->dst.w;
+		pipe->dst.y = var->yres - pipe->dst.y - pipe->dst.h;
+	}
+//#endif /*VENDOR_EDIT*/
 
 	pipe->horz_deci = req->horz_deci;
 	pipe->vert_deci = req->vert_deci;
@@ -1316,15 +1341,41 @@ static void __overlay_kickoff_requeue(struct msm_fb_data_type *mfd)
 {
 	struct mdss_mdp_ctl *ctl = mfd_to_ctl(mfd);
 
-	mdss_mdp_display_commit(ctl, NULL);
+	mdss_mdp_display_commit(ctl, NULL, NULL);
 	mdss_mdp_display_wait4comp(ctl);
 
 	ATRACE_BEGIN("sspp_programming");
 	__overlay_queue_pipes(mfd);
 	ATRACE_END("sspp_programming");
 
-	mdss_mdp_display_commit(ctl, NULL);
+	mdss_mdp_display_commit(ctl, NULL,  NULL);
 	mdss_mdp_display_wait4comp(ctl);
+}
+
+static int mdss_mdp_commit_cb(enum mdp_commit_stage_type commit_stage,
+	void *data)
+{
+	int ret = 0;
+	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)data;
+	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
+	struct mdss_mdp_ctl *ctl;
+
+	switch (commit_stage) {
+	case MDP_COMMIT_STAGE_SETUP_DONE:
+		ctl = mfd_to_ctl(mfd);
+		mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_CTX_DONE);
+		mdp5_data->kickoff_released = true;
+		mutex_unlock(&mdp5_data->ov_lock);
+		break;
+	case MDP_COMMIT_STAGE_READY_FOR_KICKOFF:
+		mutex_lock(&mdp5_data->ov_lock);
+		break;
+	default:
+		pr_err("Invalid commit stage %x", commit_stage);
+		break;
+	}
+
+	return ret;
 }
 
 int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
@@ -1336,6 +1387,7 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 	int ret = 0;
 	int sd_in_pipe = 0;
 	bool need_cleanup = false;
+	struct mdss_mdp_commit_cb commit_cb;
 
 	ATRACE_BEGIN(__func__);
 	if (ctl->shared_lock)
@@ -1385,20 +1437,28 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 	ATRACE_END("sspp_programming");
 	mutex_unlock(&mdp5_data->list_lock);
 
+	mdp5_data->kickoff_released = false;
+
 	if (mfd->panel.type == WRITEBACK_PANEL) {
 		ATRACE_BEGIN("wb_kickoff");
 		ret = mdss_mdp_wb_kickoff(mfd);
 		ATRACE_END("wb_kickoff");
+	} else if (!need_cleanup) {
+		ATRACE_BEGIN("display_commit");
+		commit_cb.commit_cb_fnc = mdss_mdp_commit_cb;
+		commit_cb.data = mfd;
+		ret = mdss_mdp_display_commit(mdp5_data->ctl, NULL,
+			&commit_cb);
+		ATRACE_END("display_commit");
 	} else {
 		ATRACE_BEGIN("display_commit");
-		ret = mdss_mdp_display_commit(mdp5_data->ctl, NULL);
+		ret = mdss_mdp_display_commit(mdp5_data->ctl, NULL,
+			NULL);
 		ATRACE_END("display_commit");
 	}
 
-	if (!need_cleanup) {
-		atomic_set(&mfd->kickoff_pending, 0);
-		wake_up_all(&mfd->kickoff_wait_q);
-	}
+	if ((!need_cleanup) && (!mdp5_data->kickoff_released))
+		mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_CTX_DONE);
 
 	if (IS_ERR_VALUE(ret))
 		goto commit_fail;
@@ -1426,10 +1486,9 @@ commit_fail:
 	ATRACE_END("overlay_cleanup");
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF, false);
 	mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_FLUSHED);
-	if (need_cleanup) {
-		atomic_set(&mfd->kickoff_pending, 0);
-		wake_up_all(&mfd->kickoff_wait_q);
-	}
+	if (!mdp5_data->kickoff_released)
+		mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_CTX_DONE);
+
 	mutex_unlock(&mdp5_data->ov_lock);
 	if (ctl->shared_lock)
 		mutex_unlock(ctl->shared_lock);
@@ -1660,7 +1719,7 @@ static void mdss_mdp_overlay_force_cleanup(struct msm_fb_data_type *mfd)
 	 * vsync to be able to release buffer.
 	 */
 	if (ctl && ctl->is_video_mode) {
-		ret = mdss_mdp_display_commit(ctl, NULL);
+		ret = mdss_mdp_display_commit(ctl, NULL, NULL);
 		if (!IS_ERR_VALUE(ret))
 			mdss_mdp_display_wait4comp(ctl);
 	}
@@ -3637,7 +3696,10 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 			rc = 0;
 		}
 	}
-
+//#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/07/21  Add for LCD rotate 180 degree */
+	mfd->is_panel_inverted = mfd->panel_info->is_panel_inverted;
+//#endif /*VENDOR_EDIT*/
 	return rc;
 init_fail:
 	kfree(mdp5_data);

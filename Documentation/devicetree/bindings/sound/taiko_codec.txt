@@ -360,6 +360,8 @@ Optional properties:
  - qcom,cdc-on-demand-supplies: List of supplies which can be enabled
 				dynamically.
 				Supplies in this list are off by default.
+ - qcom,qcom,cdc-boost-voltage: Specifies the analog boost output voltage value.
+				Value from 4000 to 5550 in mV in steps of 50 mV can be given.
 
 Example:
 msm8x16_wcd_codec@f000{

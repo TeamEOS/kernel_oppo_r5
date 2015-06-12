@@ -2453,7 +2453,8 @@ static void binder_release_work(struct list_head *list)
 			    !(t->flags & TF_ONE_WAY)) {
 				binder_send_failed_reply(t, BR_DEAD_REPLY);
 			} else {
-				binder_debug(BINDER_DEBUG_DEAD_TRANSACTION,
+				//binder_debug(BINDER_DEBUG_DEAD_TRANSACTION,
+				binder_debug(BINDER_DEBUG_FREE_BUFFER, 
 					"undelivered transaction %d\n",
 					t->debug_id);
 				t->buffer->transaction = NULL;
