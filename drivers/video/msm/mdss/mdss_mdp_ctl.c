@@ -2354,7 +2354,7 @@ int mdss_mdp_ctl_reset(struct mdss_mdp_ctl *ctl)
 
 void mdss_mdp_set_mixer_roi(struct mdss_mdp_ctl *ctl, struct mdss_rect *roi)
 {
-    struct mdss_rect mixer_roi;
+    struct mdss_rect temp_roi, mixer_roi;
     
     ctl->valid_roi = (roi->w && roi->h);
     ctl->roi_changed = 0;
