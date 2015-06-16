@@ -3646,7 +3646,7 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 	if (is_panel_split(mfd) && mdp5_data->mdata->has_dst_split)
 		mfd->split_mode = MDP_SPLIT_MODE_DST;
 
-	if (mfd->panel_info->partial_update_enabled && mfd->split_display)
+	if (mfd->panel_info->partial_update_enabled)
 		mdp5_data->mdata->has_src_split = false;
 
 	rc = mdss_mdp_overlay_fb_parse_dt(mfd);
