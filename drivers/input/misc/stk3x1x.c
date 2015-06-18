@@ -186,7 +186,6 @@
 #define PS_NAME "proximity"
 
 #define STK3X1X_LOG(format, args...) printk(KERN_ERR DEVICE_NAME " "format,##args)
-#define STK3X1X_DEBUG(format, args...) printk(KERN_DEBUG DEVICE_NAME " "format,##args)
 
 /* POWER SUPPLY VOLTAGE RANGE */
 #define STK3X1X_VDD_MIN_UV	2000000
@@ -202,19 +201,68 @@
 #endif /*VENDOR_EDIT*/
 
 #ifdef ALSPS_DYNAMIC_THRESHOLD
-static int ps_min = 0;
-static int ps_adjust_max = 2200;
-static int dirty_adjust_low_thd = 200, dirty_adjust_high_thd = 250;
-static int ps_thd_low_highlight = 2200, ps_thd_high_highlight = 2250;
+
+#define PS_ADJUST_TREND_STATE       0
+#define PS_ADJUST_NOTREND_STATE     1
+#define PS_ADJUST_HIGHLIGHT_STATE   2
+#define PS_ADJUST_AVOID_DIRTY_STATE 3
+struct set_ps_thd_para {
+    int low_threshold;
+    int high_threshold;
+    int ps_average;
+    int algo_state; //PS_ADJUST_XXX_STATE
+};
+
+struct ps_adjust_para {
+    int ps_up;
+    int ps_thd_low_notrend;
+    int ps_thd_high_notrend; //TODO when ps_up != ps_thd_high
+    int ps_thd_low_trend;
+    int ps_thd_high_trend;
+    int ps_thd_low_highlight;
+    int ps_thd_high_highlight;
+    int ps_adjust_min;
+    int ps_adjust_max;
+    int highlight_limit;
+    int sampling_time; //Unit:ms
+    int sampling_count;
+    int dirty_adjust_limit;
+    int dirty_adjust_low_thd;
+    int dirty_adjust_high_thd;
+};
+
+
+static struct ps_adjust_para cust_ps_adjust_para_stk3x1x = {
+    .ps_up = 30,
+    .ps_thd_low_notrend = 90,
+    .ps_thd_high_notrend = 120,
+    .ps_thd_low_trend = 20,
+    .ps_thd_high_trend = 30,
+    .ps_thd_low_highlight = 2200,
+    .ps_thd_high_highlight = 2250,
+    .ps_adjust_min = 0,
+    .ps_adjust_max = 2200,
+    .highlight_limit = 10000,
+    .sampling_time = 60, //Unit:ms
+    .sampling_count = 6,
+    .dirty_adjust_limit = 2200,
+    .dirty_adjust_low_thd = 200,
+    .dirty_adjust_high_thd = 250,
+};
+
+static  int ps_min = 0;
+static int last_ps;  
+static int ps_sum = 0;
+static int ps_count = 0;
+static struct ps_adjust_para* g_ps_adjust_para = NULL;
+static struct set_ps_thd_para set_ps_thd_para;
 
 static struct delayed_work sample_ps_work;
-static DECLARE_WAIT_QUEUE_HEAD(enable_wq);
 
 #endif
 
 static struct stk3x1x_data *g_ps_data = NULL;
 static int g_is_resumed = 1;
-static int g_low_thd = -1, g_high_thd = -1;
 
 static struct sensors_classdev sensors_light_cdev = {
 	.name = "stk3x1x-light",
@@ -282,6 +330,9 @@ struct stk3x1x_data {
 	bool ps_enabled;
 	struct wake_lock ps_wakelock;
 	struct work_struct stk_ps_work;
+#ifdef ALSPS_DYNAMIC_THRESHOLD    
+	struct delayed_work ps_adjust_thd_work;    
+#endif
 	struct workqueue_struct *stk_ps_wq;
 #ifdef STK_POLL_PS
 	struct wake_lock ps_nosuspend_wl;
@@ -566,7 +617,6 @@ static int32_t stk3x1x_set_als_thd_l(struct stk3x1x_data *ps_data, uint16_t thd_
 {
     uint8_t temp;
     uint8_t* pSrc = (uint8_t*)&thd_l;
-    g_low_thd = thd_l;
     temp = *pSrc;
     *pSrc = *(pSrc+1);
     *(pSrc+1) = temp;
@@ -576,7 +626,6 @@ static int32_t stk3x1x_set_als_thd_h(struct stk3x1x_data *ps_data, uint16_t thd_
 {
 	uint8_t temp;
     uint8_t* pSrc = (uint8_t*)&thd_h;
-    g_high_thd = thd_h;
     temp = *pSrc;
     *pSrc = *(pSrc+1);
     *(pSrc+1) = temp;
@@ -663,7 +712,7 @@ static int32_t stk3x1x_set_ps_aoffset(struct stk3x1x_data *ps_data, uint16_t off
 }
 */
 // hight light process . when the light contains lots of IR, the ps value will reduce. 
-static int stk_alsprx_prx_val(void)
+static int sns_dd_alsprx_prx_val(void)
 {
        uint8_t mode;
  	int32_t word_data , lii;
@@ -795,23 +844,24 @@ static int32_t stk3x1x_enable_ps(struct stk3x1x_data *ps_data, uint8_t enable)
                 int low_threshold, high_threshold;
                 if (ps_min > 1000)
                 {
-                    dirty_adjust_high_thd = 600; 
-                    dirty_adjust_low_thd = 500;  
+                    g_ps_adjust_para->dirty_adjust_high_thd = 600; 
+                    g_ps_adjust_para->dirty_adjust_low_thd = 500;  
                 }
                 else
                 {
-                    dirty_adjust_high_thd = 250; 
-                    dirty_adjust_low_thd = 200;                  
+                    g_ps_adjust_para->dirty_adjust_high_thd = 250; 
+                    g_ps_adjust_para->dirty_adjust_low_thd = 200;                  
                 }
-                if (ps_min != 0 && ps_min != ps_adjust_max)
+                last_ps = g_ps_adjust_para->ps_adjust_max;
+                if (ps_min != 0 && ps_min != g_ps_adjust_para->ps_adjust_max)
                 {
-            	     high_threshold = ps_min + dirty_adjust_high_thd;
-            	     low_threshold = ps_min + dirty_adjust_low_thd;                    
+            	     high_threshold = ps_min + g_ps_adjust_para->dirty_adjust_high_thd;
+            	     low_threshold = ps_min + g_ps_adjust_para->dirty_adjust_low_thd;                    
                 }
                 else
                 {
-            	     high_threshold =  ps_thd_high_highlight;  
-            	     low_threshold = ps_thd_low_highlight;   
+            	     high_threshold = g_ps_adjust_para->ps_thd_high_highlight;
+            	     low_threshold = g_ps_adjust_para->ps_thd_low_highlight;     
                 }
                 
                 stk3x1x_set_ps_thd_h(g_ps_data, high_threshold);
@@ -842,7 +892,10 @@ static int32_t stk3x1x_enable_ps(struct stk3x1x_data *ps_data, uint8_t enable)
 		STK3X1X_LOG("%s: ps_is_far=%d, cur ps_raw = %d ,  ps_min = %d \n",__func__, near_far_state, reading, ps_min);
 #endif	/* #ifndef STK_POLL_PS */
 #ifdef ALSPS_DYNAMIC_THRESHOLD
-              wake_up(&enable_wq);	
+        {
+             unsigned long delay = msecs_to_jiffies(g_ps_adjust_para->sampling_time);
+             queue_delayed_work(ps_data->stk_ps_wq, &ps_data->ps_adjust_thd_work, delay);      
+        }
 #endif
 	}
 	else
@@ -856,7 +909,14 @@ static int32_t stk3x1x_enable_ps(struct stk3x1x_data *ps_data, uint8_t enable)
 			disable_irq(ps_data->irq);
 #endif
 		ps_data->ps_enabled = false;
-
+#ifdef ALSPS_DYNAMIC_THRESHOLD   
+            last_ps = g_ps_adjust_para->ps_adjust_max;
+            //ps_min = para.ps_adjust_max;
+            set_ps_thd_para.algo_state = -1; //invalid state 
+            ps_sum = 0;
+            ps_count = 0;
+             cancel_delayed_work_sync(&ps_data->ps_adjust_thd_work);
+#endif
 	}
 	if (!enable) {
 		ret = stk3x1x_device_ctl(ps_data, enable);
@@ -2041,7 +2101,7 @@ static void stk_work_func(struct work_struct *work)
 		input_sync(ps_data->ps_input_dev);
 		wake_lock_timeout(&ps_data->ps_wakelock, HZ/2);
               reading = stk3x1x_get_ps_reading(ps_data);
-		printk(KERN_INFO "%s: ps input event=%d, ps code = %d ,low_thd:%d high_thd:%d \n",__func__, near_far_state, reading, g_low_thd, g_high_thd);
+		printk(KERN_INFO "%s: ps input event=%d, ps code = %d\n",__func__, near_far_state, reading);
     }
     ret = stk3x1x_set_flag(ps_data, org_flag_reg, disable_flag);
 	if(ret < 0)
@@ -2564,7 +2624,7 @@ static void sample_work_func(struct work_struct *work)
     msleep(10);
     for (i = 0; i < 10; i++)
    {
-                if (stk_alsprx_prx_val() == 0)
+                if (sns_dd_alsprx_prx_val() == 0)
                 {
                     if ((ps = stk3x1x_get_ps_reading(g_ps_data)) <= 0)
                     {
@@ -2577,10 +2637,8 @@ static void sample_work_func(struct work_struct *work)
     	msleep(10);
     }
 
-
-    if (ps_min > ps_adjust_max)  //ps_adjust_max
-    	ps_min = ps_adjust_max;
-
+    if (ps_min > g_ps_adjust_para->ps_adjust_max)
+    	ps_min = g_ps_adjust_para->ps_adjust_max;
 
     w_state_reg &= ~(STK_STATE_EN_PS_MASK | STK_STATE_EN_WAIT_MASK | 0x60);
     ret = i2c_smbus_write_byte_data(g_ps_data->client, STK_STATE_REG, w_state_reg);
@@ -2595,6 +2653,169 @@ static void sample_work_func(struct work_struct *work)
     	return;
     
     STK3X1X_LOG("%s ps:%d  \n", __func__, ps_min);
+}
+
+static int set_ps_threshold(int ps, int crosstalk, struct ps_adjust_para *para, int state)
+{
+    int low_threshold, high_threshold;
+
+    switch (state) {
+        case PS_ADJUST_TREND_STATE:
+            low_threshold = ps + para->ps_thd_low_trend;
+            high_threshold = ps + para->ps_thd_high_trend;
+
+            if (low_threshold > (crosstalk + para->dirty_adjust_low_thd))
+                low_threshold = crosstalk + para->dirty_adjust_low_thd;
+            break;
+
+        case PS_ADJUST_NOTREND_STATE:
+            low_threshold = ps + para->ps_thd_low_notrend;
+            high_threshold = ps + para->ps_thd_high_notrend;
+
+            if (low_threshold > (crosstalk + para->dirty_adjust_low_thd))
+                low_threshold = crosstalk + para->dirty_adjust_low_thd;
+            break;
+
+        case PS_ADJUST_HIGHLIGHT_STATE:
+            if (set_ps_thd_para.algo_state == PS_ADJUST_HIGHLIGHT_STATE) {
+                //already in HIGHLIGHT_STATE
+                return 0;
+            }
+            low_threshold = para->ps_thd_low_highlight;
+            high_threshold = para->ps_thd_high_highlight;
+            if (crosstalk< para->ps_thd_high_highlight/2 && crosstalk > para->ps_thd_high_highlight/20)
+            {
+                low_threshold = crosstalk + para->ps_thd_low_highlight/2;
+                high_threshold = low_threshold + para->ps_up;                
+            }
+            break;
+
+        case PS_ADJUST_AVOID_DIRTY_STATE:
+            if (set_ps_thd_para.low_threshold >= crosstalk + para->dirty_adjust_low_thd) {
+                //threshold is large, no need to avoid Dirty Problem
+                return 0;
+            }
+            low_threshold = crosstalk + para->dirty_adjust_low_thd;
+            high_threshold = crosstalk + para->dirty_adjust_high_thd;
+            break;
+        default:
+            STK3X1X_LOG("This can not happen !!!");
+            break;
+    }
+
+    if (high_threshold > para->ps_adjust_max || low_threshold < para->ps_adjust_min) {
+        return 0;
+    }
+
+    set_ps_thd_para.low_threshold = low_threshold;
+    set_ps_thd_para.high_threshold = high_threshold;
+    set_ps_thd_para.ps_average = ps;
+    set_ps_thd_para.algo_state = state;
+
+    stk3x1x_set_ps_thd_h(g_ps_data, high_threshold);
+    stk3x1x_set_ps_thd_l(g_ps_data, low_threshold);
+    
+    STK3X1X_LOG("%s: low_thd %d high_thd %d  ps:%d crosstalk:%d  state:%d \n", __func__, low_threshold, high_threshold, ps, crosstalk, state);
+    return 0;
+}
+
+static void alsps_dymamic_threshold(struct work_struct *work) 
+{
+    int ps = 0;
+    int is_far = 1;  
+
+    struct ps_adjust_para para = cust_ps_adjust_para_stk3x1x;
+    unsigned long delay = msecs_to_jiffies(para.sampling_time);
+
+    struct stk3x1x_data* ps_data = container_of((struct delayed_work *)work, struct stk3x1x_data, ps_adjust_thd_work);
+
+
+    {
+
+        if (ps_data->ps_enabled)
+        {
+            //if (ps_min >= para.ps_adjust_max)
+            //    set_ps_threshold(ps, ps_min, &para, PS_ADJUST_HIGHLIGHT_STATE);
+            // get ps and als state
+
+            if (g_is_resumed == 0)
+            {
+                STK3X1X_LOG("wait the stk3x1x driver resume. \n");
+                goto EXIT;                
+            }
+            
+            if ((ps = stk3x1x_get_ps_reading(ps_data)) <= 0)
+            {
+                STK3X1X_LOG("read ps raw data error \n");
+                goto EXIT;
+            }
+
+            is_far = ps_data->ps_distance_last;
+            //STK3X1X_LOG("Prox is %s ps %d ps_min %d \n", is_far ? "far" : "near", ps, ps_min);
+
+            if (is_far) 
+            {
+                
+                //if (als < para.highlight_limit) 
+                if (sns_dd_alsprx_prx_val() == 0)
+                {
+                    if (ps_count < para.sampling_count) {
+                        ps_sum = ps_sum + ps;
+                        ps_count++;
+                        goto EXIT;
+                    }
+
+                    // get ps average when sampling_count
+                    ps = ps_sum / para.sampling_count;
+
+                    // only adjust from adjust_min to adjust_max
+                    ps = (ps > para.ps_adjust_max) ? para.ps_adjust_max : ps;
+                    ps = (ps < para.ps_adjust_min) ? para.ps_adjust_min : ps;
+
+                    // guess min crosstalk when lowlight
+                    ps_min = (ps_min > ps) ? ps : ps_min;
+
+                    //adjust ps threshold 
+                    if (ps < last_ps + para.ps_up)
+                        set_ps_threshold(ps, ps_min, &para, PS_ADJUST_NOTREND_STATE);
+                    else
+                        set_ps_threshold(last_ps, ps_min, &para, PS_ADJUST_TREND_STATE);
+
+                    last_ps = ps;
+                    ps_sum = 0;
+                    ps_count = 0;
+                }
+                else // highlight (maybe in sunshine)
+                {
+                    // fixed ps threshold (highlight)  //the more light, the ps less, so save the last threshold.
+                    //set_ps_threshold(ps, ps_min, &para, PS_ADJUST_HIGHLIGHT_STATE);
+                    last_ps = para.ps_adjust_max;
+                }
+
+            } 
+            else  // near
+            {
+                //To avoid a dirty problem when near with a large ps
+                if (ps > para.dirty_adjust_limit) {
+                    set_ps_threshold(ps, ps_min, &para, PS_ADJUST_AVOID_DIRTY_STATE);
+                }
+
+                last_ps = para.ps_adjust_max;
+            }
+        }            
+        else // prox disable
+        {            
+            STK3X1X_LOG("%s prox disable \n", __func__);  
+            return ;
+        }
+
+    }
+
+EXIT:
+
+    queue_delayed_work(ps_data->stk_ps_wq, &ps_data->ps_adjust_thd_work, delay);
+    //STK3X1X_LOG(" %s exit .... \n", __func__);
+    return ;
 }
 
 #endif /*ALSPS_DYNAMIC_THRESHOLD*/
@@ -2667,139 +2888,11 @@ static struct kobj_attribute als_raw =
 	.attr = {"als_raw", 0444},
 	.show = stk3x1x_als_raw_show,
 };
-static ssize_t stk3x1x_name_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%s", DEVICE_NAME);
-}
-static struct kobj_attribute name = 
-{
-	.attr = {"name", 0444},
-	.show = stk3x1x_name_show,
-};
-static ssize_t stk3x1x_high_light_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%d\n",  (stk_alsprx_prx_val() == 0)? 0:1);
-}
-static struct kobj_attribute is_high_light = 
-{
-	.attr = {"is_high_light", 0444},
-	.show = stk3x1x_high_light_show,
-};
-static ssize_t stk3x1x_ps_enable_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%d", g_ps_data->ps_enabled);
-}
-static struct kobj_attribute ps_enable = 
-{
-	.attr = {"ps_enable", 0444},
-	.show = stk3x1x_ps_enable_show,
-};
-static ssize_t stk3x1x_alsps_ps_thd_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
-{
-	u32 data[2];
-	if (sscanf(buf, "%d %d", (unsigned int *)&data[0],(unsigned int *)&data[1]) == 2)
-       {
-       //printk(KERN_ERR"algo set --- low_thd:%d high_thd:%d \n", __func__, data[0], data[1]);
-       stk3x1x_set_ps_thd_h(g_ps_data, data[1]);
-       stk3x1x_set_ps_thd_l(g_ps_data, data[0]);
-       }
-       else
-       {
-            printk("%s the buf format is error.\n", __func__);
-       }
-	return count;
-}
-static struct kobj_attribute ps_thd = 
-{
-	.attr = {"ps_thd", 0220},
-	.store = stk3x1x_alsps_ps_thd_store,
-};
-
-static ssize_t stk3x1x_alsps_ps_min_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
-{
-	u32 data;
-	if (sscanf(buf, "%d", (unsigned int *)&data) == 1)
-       {
-            printk(KERN_ERR"%s the buf is %s\n", __func__, buf);
-            ps_min = data;
-       }
-       else
-       {
-            printk("%s the buf format is error.\n", __func__);
-       }
-	return count;
-}
-static ssize_t stk3x1x_alsps_ps_min_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-	 return snprintf(buf, PAGE_SIZE, "%d\n", ps_min);
-}
-static struct kobj_attribute ps_min_val = 
-{
-	.attr = {"ps_min", 0664},
-	.show = stk3x1x_alsps_ps_min_show,
-	.store = stk3x1x_alsps_ps_min_store,
-};
-
-static ssize_t stk3x1x_alsps_algo_info_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
-{
-	u32 data[5];
-	if (sscanf(buf, "%d %d %d %d %d", (unsigned int *)&data[0],(unsigned int *)&data[1], (unsigned int *)&data[2],
-           (unsigned int *)&data[3], (unsigned int *)&data[4]) == 5)
-       {
-            printk(KERN_ERR"%s the buf is %s\n", __func__, buf);
-            ps_thd_low_highlight = data[0];
-            ps_thd_high_highlight = data[1];
-            ps_adjust_max = data[2];
-            dirty_adjust_low_thd = data[3];
-            dirty_adjust_high_thd = data[4];
-
-       }
-       else
-       {
-            printk("%s the buf format is error.\n", __func__);
-       }
-	return count;
-}
-static struct kobj_attribute algo_info = 
-{
-	.attr = {"algo_info", 0220},
-	.store = stk3x1x_alsps_algo_info_store,
-};
-static ssize_t stk3x1x_algo_wakeup_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-            //TODO wait here?
-        wait_event_interruptible(enable_wq, g_ps_data->ps_enabled);
-        printk(KERN_ERR"wait ps enable done\n");
-	 return snprintf(buf, PAGE_SIZE, "%d\n", g_ps_data->ps_enabled);
-}
-static struct kobj_attribute algo_wakeup = 
-{
-	.attr = {"algo_wakeup", 0444},
-	.show = stk3x1x_algo_wakeup_show,
-};
-static ssize_t stk3x1x_far_status_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%d\n",  g_ps_data->ps_distance_last);
-}
-static struct kobj_attribute far_status = 
-{
-	.attr = {"far_status", 0444},
-	.show = stk3x1x_far_status_show,
-};
-
 static const struct attribute *stk3x1x_ftm_attrs[] = 
 {
 	&enable.attr,
 	&prox_raw.attr,
 	&als_raw.attr,
-	&name.attr,
-	&is_high_light.attr,
-	&ps_enable.attr,
-	&ps_thd.attr,
-	&far_status.attr,	
-	&ps_min_val.attr,
-	&algo_wakeup.attr,
-	&algo_info.attr,
 	NULL
 };
 static struct dev_ftm stk3x1x_ftm;
@@ -2988,13 +3081,12 @@ static int stk3x1x_probe(struct i2c_client *client,
 	register_single_dev_ftm(&stk3x1x_ftm);       
 
 #ifdef ALSPS_DYNAMIC_THRESHOLD  
-
-	//INIT_DELAYED_WORK(&ps_data->ps_adjust_thd_work, alsps_dymamic_threshold);
+       g_ps_adjust_para = &cust_ps_adjust_para_stk3x1x;
+       ps_min = g_ps_adjust_para->ps_adjust_max;
+	INIT_DELAYED_WORK(&ps_data->ps_adjust_thd_work, alsps_dymamic_threshold);
 
 	INIT_DELAYED_WORK(&sample_ps_work, sample_work_func);
-	queue_delayed_work(ps_data->stk_ps_wq,&sample_ps_work, msecs_to_jiffies(1*HZ)); 
-
-       init_waitqueue_head(&enable_wq);
+	queue_delayed_work(ps_data->stk_ps_wq,&sample_ps_work, msecs_to_jiffies(1*HZ));    
 #endif
     
 	printk(KERN_ERR"%s: probe successfully", __func__);

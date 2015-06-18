@@ -1683,125 +1683,93 @@ static unsigned int power_cost(struct task_struct *p, int cpu)
 
 static int best_small_task_cpu(struct task_struct *p, int sync)
 {
-	int best_mi_cpu = -1, best_mi_cpu_power = INT_MAX;
-	int best_idle_lowpower_cpu = -1,
-		best_idle_lowpower_cpu_cstate = INT_MAX;
-	int best_idle_highpower_cpu = -1,
-		best_idle_highpower_cpu_cstate = INT_MAX;
-	int best_busy_lowpower_cpu = -1;
-	u64 best_busy_lowpower_cpu_load = ULLONG_MAX;
-	int best_busy_highpower_cpu = -1;
-	u64 best_busy_highpower_cpu_load = ULLONG_MAX;
-	int min_cost_cpu = -1;
-	int min_cost = INT_MAX;
-	int i, cstate, cpu_cost;
+	int best_nonlpm_sibling_cpu = -1,
+		best_nonlpm_sibling_load = INT_MAX;
+	int best_nonlpm_nonsibling_cpu = -1,
+		best_nonlpm_nonsibling_load = INT_MAX;
+	int best_lpm_sibling_cpu = -1,
+		best_lpm_sibling_cstate = INT_MAX;
+	int best_lpm_nonsibling_cpu = -1,
+		best_lpm_nonsibling_cstate = INT_MAX;
+	int cluster_cost, i, cstate;
 	u64 load;
-	int cost_list[nr_cpu_ids];
+
 	struct cpumask search_cpus;
+	int cpu = smp_processor_id();
 
 	cpumask_and(&search_cpus,  tsk_cpus_allowed(p), cpu_online_mask);
 
 	if (cpumask_empty(&search_cpus))
 		return task_cpu(p);
 
-	/* Take a first pass to find the lowest power cost CPU. This
-	   will avoid a potential O(n^2) search */
-	for_each_cpu(i, &search_cpus) {
+	/* If a CPU is doing a sync wakeup and it only has one currently
+	 * running task, just run the waking small task on that CPU regardless
+	 * of what type of CPU it is. */
+	if (sync && cpu_rq(cpu)->nr_running == 1)
+		return cpu;
 
-		trace_sched_cpu_load(cpu_rq(i), idle_cpu(i),
-				     mostly_idle_cpu_sync(i, sync), power_cost(p, i));
+	cluster_cost = power_cost(p, cpu);
 
-		cpu_cost = power_cost(p, i);
-		if (cpu_cost < min_cost) {
-			min_cost = cpu_cost;
-			min_cost_cpu = i;
-		}
-
-		cost_list[i] = cpu_cost;
-	}
-
-	/* Optimization to steer task towards the minimum power
-	   cost CPU. The tradeoff is that we may have to check
-	   the same information again in pass 2 */
-	if (!cpu_rq(min_cost_cpu)->cstate && mostly_idle_cpu(min_cost_cpu))
-		return min_cost_cpu;
-
-	/* 1. Lowest power-cost mostly idle CPU in system.
-	 * 2. Shallowest c-state idle CPU in little cluster.
-	 * 3. Least busy CPU in little cluster where adding the task
-	 *    won't cross spill.
-	 * 4. Least busy non-idle CPU outside little cluster.
-	 * 5. Shallowest c-state idle CPU outside little cluster. */
+	/* 1. Least-loaded CPU in the same cluster which is not in a low
+	 *    power mode and where adding the task will not cause the
+	 *    spill threshold to be crossed.
+	 * 2. Least-loaded CPU in the rest of the topology which is not
+	 *    in a low power mode and where adding the task will not cause
+	 *    the spill threshold to be crossed.
+	 * 3. The idle CPU in the same cluster which is in the shallowest
+	 *    C-state.
+	 * 4. The idle CPU in the rest of the topology which is in the
+	 *    shallowest C-state.
+	 * 5. The task's previous CPU. */
 	for_each_cpu(i, &search_cpus) {
 		struct rq *rq = cpu_rq(i);
 		cstate = rq->cstate;
-
-		/* Is this the best mostly idle CPU (that's not in a low
-		 * power mode) that we've seen? */
-		if (!(cstate && idle_cpu(i)) && mostly_idle_cpu_sync(i, sync)) {
-			if (cost_list[i] < best_mi_cpu_power) {
-				best_mi_cpu = i;
-				best_mi_cpu_power = cost_list[i];
-			}
-			continue;
-		}
-
-		/* CPU is either in a low power mode or not mostly idle. */
-
-		/* Is this the lowest-loaded CPU outside the lowest power
-		 * band that we've seen? */
 		load = cpu_load_sync(i, sync);
-		if (power_delta_exceeded(cost_list[i], min_cost)) {
 
+		trace_sched_cpu_load(rq, idle_cpu(i),
+				     mostly_idle_cpu_sync(i, sync),
+				     power_cost(p, i));
+
+		if (power_cost(p, i) == cluster_cost) {
+			/* This CPU is within the same cluster as the waker. */
 			if (idle_cpu(i) && cstate) {
-				if (cstate < best_idle_highpower_cpu_cstate) {
-					best_idle_highpower_cpu = i;
-					best_idle_highpower_cpu_cstate = cstate;
+				if (cstate < best_lpm_sibling_cstate) {
+					best_lpm_sibling_cpu = i;
+					best_lpm_sibling_cstate = cstate;
 				}
 				continue;
 			}
-
-			if (load < best_busy_highpower_cpu_load) {
-				best_busy_highpower_cpu = i;
-				best_busy_highpower_cpu_load = load;
+			if (load < best_nonlpm_sibling_load &&
+			    !spill_threshold_crossed(p, rq, i, sync)) {
+				best_nonlpm_sibling_cpu = i;
+				best_nonlpm_sibling_load = load;
 			}
 			continue;
 		}
 
-		/* CPU is in lowest power band and either in a low
-		 * power mode or beyond mostly idle. */
-
-		/* Is this the shallowest idle CPU in the lowest power
-		 * band that we've seen? */
+		/* This CPU is not within the same cluster as the waker. */
 		if (idle_cpu(i) && cstate) {
-			if (cstate < best_idle_lowpower_cpu_cstate) {
-				best_idle_lowpower_cpu = i;
-				best_idle_lowpower_cpu_cstate = cstate;
+			if (cstate < best_lpm_nonsibling_cstate) {
+				best_lpm_nonsibling_cpu = i;
+				best_lpm_nonsibling_cstate = cstate;
 			}
 			continue;
 		}
-
-		/* CPU is in lowest power band and beyond mostly idle. */
-
-		/* Is this the least loaded non-mostly-idle CPU in the
-		 * lowest power band that we've seen? */
-		if (load < best_busy_lowpower_cpu_load &&
+		if (load < best_nonlpm_nonsibling_load &&
 		    !spill_threshold_crossed(p, rq, i, sync)) {
-			best_busy_lowpower_cpu = i;
-			best_busy_lowpower_cpu_load = load;
+			best_nonlpm_nonsibling_cpu = i;
+			best_nonlpm_nonsibling_load = load;
 		}
 	}
 
-	if (best_mi_cpu != -1)
-		return best_mi_cpu;
-	if (best_idle_lowpower_cpu != -1)
-		return best_idle_lowpower_cpu;
-	if (best_busy_lowpower_cpu != -1)
-		return best_busy_lowpower_cpu;
-	if (best_busy_highpower_cpu != -1)
-		return best_busy_highpower_cpu;
-	if (best_idle_highpower_cpu != -1)
-		return best_idle_highpower_cpu;
+	if (best_nonlpm_sibling_cpu != -1)
+		return best_nonlpm_sibling_cpu;
+	if (best_nonlpm_nonsibling_cpu != -1)
+		return best_nonlpm_nonsibling_cpu;
+	if (best_lpm_sibling_cpu != -1)
+		return best_lpm_sibling_cpu;
+	if (best_lpm_nonsibling_cpu != -1)
+		return best_lpm_nonsibling_cpu;
 
 	return task_cpu(p);
 }
@@ -1852,7 +1820,7 @@ static int select_best_cpu(struct task_struct *p, int target, int reason,
 	int boost = sched_boost();
 	int cstate, min_cstate = INT_MAX;
 
-	trace_sched_task_load(p, boost, reason);
+	trace_sched_task_load(p, small_task, boost, reason, sync);
 
 	if (small_task && !boost) {
 		best_cpu = best_small_task_cpu(p, sync);
@@ -1968,7 +1936,7 @@ done:
 
 void inc_nr_big_small_task(struct rq *rq, struct task_struct *p)
 {
-	if (!sched_enable_hmp)
+	if (!sched_enable_hmp || sched_disable_window_stats)
 		return;
 
 	if (is_big_task(p))
@@ -1979,7 +1947,7 @@ void inc_nr_big_small_task(struct rq *rq, struct task_struct *p)
 
 void dec_nr_big_small_task(struct rq *rq, struct task_struct *p)
 {
-	if (!sched_enable_hmp)
+	if (!sched_enable_hmp || sched_disable_window_stats)
 		return;
 
 	if (is_big_task(p))
@@ -2034,48 +2002,33 @@ void post_big_small_task_count_change(const struct cpumask *cpus)
 	local_irq_enable();
 }
 
-static DEFINE_MUTEX(policy_mutex);
+DEFINE_MUTEX(policy_mutex);
 
-int sched_acct_wait_time_update_handler(struct ctl_table *table, int write,
-		void __user *buffer, size_t *lenp,
-		loff_t *ppos)
+static inline int invalid_value(unsigned int *data)
 {
-	int ret;
-	unsigned int *data = (unsigned int *)table->data;
-	unsigned int old_val;
-	unsigned long flags;
+	int val = *data;
 
-	if (!sched_enable_hmp)
-		return -EINVAL;
+	if (data == &sysctl_sched_ravg_hist_size)
+		return (val < 2 || val > RAVG_HIST_SIZE_MAX);
 
-	mutex_lock(&policy_mutex);
+	if (data == &sysctl_sched_window_stats_policy)
+		return (val >= WINDOW_STATS_INVALID_POLICY);
 
-	old_val = *data;
-
-	ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
-	if (ret || !write || (write && old_val == *data))
-		goto done;
-
-	local_irq_save(flags);
-
-	reset_all_window_stats(0, 0, -1, sysctl_sched_account_wait_time, 0);
-
-	local_irq_restore(flags);
-
-done:
-	mutex_unlock(&policy_mutex);
-
-	return ret;
+	return 0;
 }
 
-int sched_ravg_hist_size_update_handler(struct ctl_table *table, int write,
+/*
+ * Handle "atomic" update of sysctl_sched_window_stats_policy,
+ * sysctl_sched_ravg_hist_size, sysctl_sched_account_wait_time and
+ * sched_freq_legacy_mode variables.
+ */
+int sched_window_update_handler(struct ctl_table *table, int write,
 		void __user *buffer, size_t *lenp,
 		loff_t *ppos)
 {
 	int ret;
 	unsigned int *data = (unsigned int *)table->data;
 	unsigned int old_val;
-	unsigned long flags;
 
 	if (!sched_enable_hmp)
 		return -EINVAL;
@@ -2088,49 +2041,13 @@ int sched_ravg_hist_size_update_handler(struct ctl_table *table, int write,
 	if (ret || !write || (write && (old_val == *data)))
 		goto done;
 
-	if (*data > RAVG_HIST_SIZE_MAX || *data < 1) {
+	if (invalid_value(data)) {
 		*data = old_val;
 		ret = -EINVAL;
 		goto done;
 	}
 
-	local_irq_save(flags);
-
-	reset_all_window_stats(0, 0, -1, -1, sysctl_sched_ravg_hist_size);
-
-	local_irq_restore(flags);
-
-done:
-	mutex_unlock(&policy_mutex);
-
-	return ret;
-}
-
-int sched_window_stats_policy_update_handler(struct ctl_table *table, int write,
-		void __user *buffer, size_t *lenp,
-		loff_t *ppos)
-{
-	int ret;
-	unsigned int *data = (unsigned int *)table->data;
-	unsigned int old_val;
-	unsigned long flags;
-
-	if (!sched_enable_hmp)
-		return -EINVAL;
-
-	mutex_lock(&policy_mutex);
-
-	old_val = *data;
-
-	ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
-	if (ret || !write || (write && old_val == *data))
-		goto done;
-
-	local_irq_save(flags);
-
-	reset_all_window_stats(0, 0, sysctl_sched_window_stats_policy, -1, 0);
-
-	local_irq_restore(flags);
+	reset_all_window_stats(0, 0);
 
 done:
 	mutex_unlock(&policy_mutex);
@@ -6723,7 +6640,7 @@ more_balance:
 				stop_one_cpu_nowait(cpu_of(busiest),
 					active_load_balance_cpu_stop, busiest,
 					&busiest->active_balance_work);
-				ld_moved++;	
+				ld_moved++;
 			}
 
 			/*
@@ -6847,7 +6764,7 @@ void idle_balance(int this_cpu, struct rq *this_rq)
 		if (sd->flags & SD_BALANCE_NEWIDLE) {
 			/* If we've pulled tasks over stop searching: */
 			pulled_task = load_balance(balance_cpu, balance_rq,
-						   sd, CPU_NEWLY_IDLE, &balance);
+					sd, CPU_NEWLY_IDLE, &balance);
 		}
 
 		interval = msecs_to_jiffies(sd->balance_interval);

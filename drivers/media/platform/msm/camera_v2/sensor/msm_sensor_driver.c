@@ -30,18 +30,11 @@
 #define SENSOR_MAX_MOUNTANGLE (360)
 
 #ifdef VENDOR_EDIT
-#include <mach/oppo_project.h> 
-#include <mach/device_info.h>
-/*liubin 2014-10-24 add for 14037/14039/14040 devices information*/
-#define DEVICE_VERSION_IMX179		"imx179"
-#define DEVICE_MANUFACUTRE_IMX179	"Sony"
-#define DEVICE_VERSION_5648_SUNNY	"ov5648_sunny"
-#define DEVICE_MANUFACUTRE_5648		"OmniVision"
-#define DEVICE_VERSION_IMX214		"imx214"
-#define DEVICE_MANUFACUTRE_IMX214	"Sony"
-/*hufeng 2014-10-26 add for 14005 14006 devices information*/
-#define DEVICE_VERSION_S5K5E2		"s5k5e2"
-#define DEVICE_MANUFACUTRE_S5K5E2	"Samsung"
+/* zhengrong.zhang,2015/02/12, Modify for removing project judge */
+static char back_camera_name_kernel[255] = {0};
+static char front_camera_name_kernel[255] = {0};
+static bool back_probe_kernel = false;
+static bool front_probe_kernel = false;
 #endif
 
 /* Static declaration */
@@ -400,6 +393,28 @@ int32_t msm_sensor_driver_probe(void *setting)
 
 	CDBG("s_ctrl[%d] %p", slave_info->camera_id, s_ctrl);
 
+#ifdef VENDOR_EDIT
+/* zhengrong.zhang,2015/02/12, Modify for removing project judge */
+	if (s_ctrl->is_probe_succeed == 1 &&
+		back_probe_kernel &&
+		slave_info->camera_id == 0 &&
+		strcmp(back_camera_name_kernel, slave_info->sensor_name) == 0) {
+		pr_err("slot %d has some other sensor", slave_info->camera_id);
+		rc = 0;
+		goto FREE_SLAVE_INFO;
+	} else if (s_ctrl->is_probe_succeed == 1 &&
+		front_probe_kernel &&
+		slave_info->camera_id == 1 &&
+		strcmp(front_camera_name_kernel, slave_info->sensor_name) == 0) {
+		pr_err("slot %d has some other sensor", slave_info->camera_id);
+		rc = 0;
+		goto FREE_SLAVE_INFO;
+	} else if (s_ctrl->is_probe_succeed == 1) {
+		pr_err("slot %d has no support sensor", slave_info->camera_id);
+		rc = -EINVAL;
+		goto FREE_SLAVE_INFO;
+    }
+#else
 	if (s_ctrl->is_probe_succeed == 1) {
 		/*
 		 * Different sensor on this camera slot has been connected
@@ -410,6 +425,7 @@ int32_t msm_sensor_driver_probe(void *setting)
 		rc = 0;
 		goto FREE_SLAVE_INFO;
 	}
+#endif
 
 	size = slave_info->power_setting_array.size;
 	/* Allocate memory for power up setting */
@@ -595,6 +611,17 @@ int32_t msm_sensor_driver_probe(void *setting)
 	 * probed on this slot
 	 */
 	s_ctrl->is_probe_succeed = 1;
+
+#ifdef VENDOR_EDIT
+/* zhengrong.zhang,2015/02/12, Modify for removing project judge */
+	if (slave_info->camera_id == 0 && !back_probe_kernel) {
+		strcpy(back_camera_name_kernel, slave_info->sensor_name);
+		back_probe_kernel = true;
+	} else if (slave_info->camera_id == 1 && !front_probe_kernel) {
+		strcpy(front_camera_name_kernel, slave_info->sensor_name);
+		front_probe_kernel = true;        
+	}
+#endif
 
 	/*
 	 * Create /dev/videoX node, comment for now until dummy /dev/videoX
@@ -931,26 +958,6 @@ static int32_t msm_sensor_driver_platform_probe(struct platform_device *pdev)
 	/* Fill device in power info */
 	s_ctrl->sensordata->power_info.dev = &pdev->dev;
 
-#ifdef VENDOR_EDIT
-	/*liubin 2014-10-24 add for 14037/14039/14040 devices information*/
-	if(is_project(OPPO_14037) || is_project(OPPO_14039) || is_project(OPPO_14051))
-	{
-		register_device_proc("r_camera", DEVICE_VERSION_IMX179, DEVICE_MANUFACUTRE_IMX179);
-		register_device_proc("f_camera", DEVICE_VERSION_5648_SUNNY, DEVICE_MANUFACUTRE_5648);
-	}
-	/*liubin 2014-10-25 add for 14045/14046/14047 devices information*/
-	if(is_project(OPPO_14045) || is_project(OPPO_14046) || is_project(OPPO_14047))
-	{
-		register_device_proc("r_camera", DEVICE_VERSION_IMX214, DEVICE_MANUFACUTRE_IMX214);
-		register_device_proc("f_camera", DEVICE_VERSION_5648_SUNNY, DEVICE_MANUFACUTRE_5648);
-	}
-	/*hufeng 2014-10-26 add for 14005 14006 devices information*/
-	if(is_project(OPPO_14005) || is_project(OPPO_14006))
-	{
-		register_device_proc("r_camera", DEVICE_VERSION_IMX214, DEVICE_MANUFACUTRE_IMX214);
-		register_device_proc("f_camera", DEVICE_VERSION_S5K5E2, DEVICE_MANUFACUTRE_S5K5E2);
-	}
-#endif
 	return rc;
 FREE_S_CTRL:
 	kfree(s_ctrl);

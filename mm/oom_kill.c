@@ -172,9 +172,22 @@ unsigned long oom_badness(struct task_struct *p, struct mem_cgroup *memcg,
 	if (has_capability_noaudit(p, CAP_SYS_ADMIN))
 		adj -= 30;
 
+#ifdef VENDOR_EDIT
+	//xuanzhi.qin@Swdp.Android.FrameworkUi, 2015/01/29, add  to kill bad process which maybe  lead to memleak
+	if (adj < 0 && (points > totalpages / 10)) {
+		adj +=1000;
+		adj *= totalpages / 1000;
+		points += adj;
+	} else {
+		/* Normalize to oom_score_adj units */
+		adj *= totalpages / 1000;
+		points += adj;
+	}
+#else
 	/* Normalize to oom_score_adj units */
 	adj *= totalpages / 1000;
 	points += adj;
+#endif	/*VENDOR_EDIT*/
 
 	/*
 	 * Never return 0 for an eligible task regardless of the root bonus and

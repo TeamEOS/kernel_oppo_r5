@@ -32,7 +32,7 @@
 #include <linux/qpnp/qpnp-adc.h>
 #include <mach/oppo_boot_mode.h>
 //#include <linux/boot_mode.h>
-#include <oppo_inc.h>
+#include "oppo_inc.h"
 
 
 #define OPPO_BATTERY_ENCRPTION
@@ -499,7 +499,7 @@ int opchg_get_bq2022_manufacture_id(void)
 			batt_manufac_id = BATTERY_1800MAH_MM;
 		else 
 			batt_manufac_id = BATTERY_1800MAH_MM;	//default to BATTERY_1800MAH_MM
-	} else if(is_project(OPPO_14037)){
+	} else if(is_project(OPPO_14037) || is_project(OPPO_15057)){
 		if(manufac_id_buf[6] == 0x2)
 			batt_manufac_id = BATTERY_2020MAH_SONY;
 		else if(manufac_id_buf[6] == 0x4)

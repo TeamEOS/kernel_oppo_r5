@@ -422,14 +422,16 @@ static void __reset_iommu(struct msm_iommu_drvdata *iommu_drvdata)
 	SET_CR2(base, 0);
 	SET_GFAR(base, 0);
 	SET_GFSRRESTORE(base, 0);
+
 	/* Invalidate the entire non-secure TLB */
 	SET_TLBIALLNSNH(base, 0);
 	mb();
 	SET_TLBGSYNC(base, 0);
 	res = readl_tight_poll_timeout(GLB_REG(TLBGSTATUS, base), val,
-		(val & TLBGSTATUS_GSACTIVE) == 0, 5000000);
+			(val & TLBGSTATUS_GSACTIVE) == 0, 5000000);
 	if (res)
 		BUG();
+
 	smt_size = GET_IDR0_NUMSMRG(base);
 
 	for (i = 0; i < smt_size; i++)
@@ -531,7 +533,6 @@ static void __reset_context(struct msm_iommu_drvdata *iommu_drvdata, int ctx)
 	SET_PAR(base, ctx, 0);
 	SET_PRRR(base, ctx, 0);
 	SET_SCTLR(base, ctx, 0);
-//	SET_TLBIALL(base, ctx, 0);
 	SET_TTBCR(base, ctx, 0);
 	SET_TTBR0(base, ctx, 0);
 	SET_TTBR1(base, ctx, 0);
@@ -567,8 +568,8 @@ static void msm_iommu_assign_ASID(const struct msm_iommu_drvdata *iommu_drvdata,
 				  struct msm_iommu_ctx_drvdata *curr_ctx,
 				  struct msm_iommu_priv *priv)
 {
-	 
 	void __iomem *cb_base = iommu_drvdata->cb_base;
+
 	curr_ctx->asid = curr_ctx->num;
 	msm_iommu_set_ASID(cb_base, curr_ctx->num, curr_ctx->asid);
 }
@@ -728,9 +729,10 @@ static void __program_context(struct msm_iommu_drvdata *iommu_drvdata,
 	msm_iommu_assign_ASID(iommu_drvdata, ctx_drvdata, priv);
 	mb();
 	SET_TLBIASID(iommu_drvdata->cb_base, ctx_drvdata->num,
-			                             ctx_drvdata->asid);
-	mb();
+		                             ctx_drvdata->asid);
+        mb();
 	__sync_tlb(iommu_drvdata, ctx_drvdata->num);
+
 	/* Enable the MMU */
 	SET_CB_SCTLR_M(cb_base, ctx, 1);
 	mb();
@@ -909,9 +911,9 @@ static void msm_iommu_detach_dev(struct iommu_domain *domain,
 
 	SET_TLBIASID(iommu_drvdata->cb_base, ctx_drvdata->num,
 					ctx_drvdata->asid);
-
 	mb();
 	__sync_tlb(iommu_drvdata, ctx_drvdata->num);
+
 	ctx_drvdata->asid = -1;
 
 	__reset_context(iommu_drvdata, ctx_drvdata->num);

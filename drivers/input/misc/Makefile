@@ -76,6 +76,10 @@ obj-$(CONFIG_SENSORS_BMA2X2)	+= bstclass.o
 
 obj-$(CONFIG_SENSORS_BMA2X2)	+= bma2x2.o
 
+##ifdef VENDOR_EDIT /* LiuPing@Phone.BSP.Sensor, 2014/08/18, add for alsps:tmg399x */
+obj-$(CONFIG_SENSORS_TMG399X)	+= tmg399x.o
+obj-$(CONFIG_SENSORS_TMG399X)	+= tmg399x_gesture_algorithm.o
+##endif /*VENDOR_EDIT*/
 
 ifeq ($(CONFIG_SENSORS_BMA2X2_ENABLE_INT1),y)
 	EXTRA_CFLAGS += -DBMA2X2_ENABLE_INT1

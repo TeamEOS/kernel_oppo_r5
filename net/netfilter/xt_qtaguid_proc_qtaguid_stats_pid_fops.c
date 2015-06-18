@@ -60,8 +60,8 @@ static void qtagpid_test_stats(void)
                     bytes = i; 
                     pid_stat_entry = pid_stat_tree_search(&ts_entry->pid_stat_tree, comm);
                     if (!pid_stat_entry) {
-                        pid_stat_entry = create_pid_stat(ts_entry, comm);
-                    }    
+                        pid_stat_entry = create_pid_stat(ts_entry, comm, current->pid);
+                    }
                     data_counters_update(&pid_stat_entry->counters, set, direction, proto, bytes);
                     spin_unlock_bh(&ts_entry->pid_stat_list_lock);
                     spin_unlock_bh(&pid_stat_tree_lock);

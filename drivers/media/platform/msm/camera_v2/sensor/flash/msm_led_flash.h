@@ -21,6 +21,8 @@
 #include "msm_camera_i2c.h"
 #include "msm_sd.h"
 
+#define FL_SKY81284 0
+#define FL_LM3642 1
 
 struct msm_led_flash_ctrl_t;
 

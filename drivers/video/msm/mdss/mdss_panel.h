@@ -94,8 +94,11 @@ struct mdss_panel_cfg {
 	bool init_done;
 };
 
-struct mdss_panel_recovery {
-	void (*fxn)(void *ctx);
+#define MDP_INTF_DSI_CMD_FIFO_UNDERFLOW		0x0001
+#define MDP_INTF_DSI_VIDEO_FIFO_OVERFLOW	0x0002
+
+struct mdss_intf_recovery {
+	void (*fxn)(void *ctx, int event);
 	void *data;
 };
 
@@ -141,6 +144,8 @@ struct mdss_panel_recovery {
  *				based on the dsi mode passed as argument.
  *				- 0: update to video mode
  *				- 1: update to command mode
+ * @MDSS_EVENT_REGISTER_RECOVERY_HANDLER: Event to recover the interface in
+ *					case there was any errors detected.
  */
 enum mdss_intf_events {
 	MDSS_EVENT_RESET = 1,
@@ -161,6 +166,7 @@ enum mdss_intf_events {
     MDSS_EVENT_ENABLE_PARTIAL_ROI,
     MDSS_EVENT_DSI_STREAM_SIZE,
 	MDSS_EVENT_DSI_DYNAMIC_SWITCH,
+	MDSS_EVENT_REGISTER_RECOVERY_HANDLER,
 };
 
 struct lcd_panel_info {

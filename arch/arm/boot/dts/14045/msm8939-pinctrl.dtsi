@@ -134,7 +134,38 @@
 				bias-disable;
 			};
 		};
-
+		
+		//#ifdef VENDOR_EDIT //Jianfeng.Qiu@BSP.Drv, 2014-8-13, Modify for delete card hotplug
+		sim2_cd_pin {
+			qcom,pins = <&gp 56>;
+			qcom,num-grp-pins = <1>;
+			qcom,pin-func = <0>;
+			label = "sim2-cd-gpio";
+			sim2_cd_on: cd_on {
+				drive-strength = <2>;
+				bias-pull-up;
+				};
+			sim2_cd_off: cd_off {
+				drive-strength = <2>;
+				bias-disable;
+				};
+			};
+		sim1_cd_pin {
+			qcom,pins = <&gp 60>;
+			qcom,num-grp-pins = <1>;
+			qcom,pin-func = <0>;
+			label = "sim1-cd-gpio";
+			sim1_cd_on: cd_on {
+				drive-strength = <2>;
+				bias-pull-up;
+				};
+			sim1_cd_off: cd_off {
+				drive-strength = <2>;
+				bias-disable;
+				};
+			};
+		//#endif
+		
 		/* SDC pin type */
 		sdc: sdc {
 			qcom,pin-type-sdc;
@@ -526,6 +557,19 @@
 				drive-strength = <2>;
 				bias-pull-down;
 			};
+		};
+		
+		ts_id1 {
+			qcom,pins = <&gp 51>;
+			qcom,pin-func = <0>;
+			qcom,num-grp-pins = <1>;
+			label = "ts_id1";
+
+			ts_id1_default: ts_id1_default {
+				drive-strength = <2>;
+				bias-pull-down;
+			};
+		
 		};
 
 		cdc_slim_lines {

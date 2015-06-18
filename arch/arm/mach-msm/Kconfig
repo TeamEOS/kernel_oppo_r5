@@ -401,7 +401,6 @@ config PHYS_OFFSET
 	default "0x00000000" if ARCH_MSM8974
 	default "0x00000000" if ARCH_APQ8084
 	default "0x00000000" if ARCH_MPQ8092
-	default "0x80000000" if ARCH_MSM8916
 	default "0x00000000" if ARCH_MSM8226
 	default "0x00000000" if ARCH_MSM8610
 	default "0x00000000" if ARCH_MSMSAMARIUM
@@ -1090,5 +1089,14 @@ config OPPO_DEVICE_IFNO
 	help 
 	  This is the oppo device info show function, open it will enable the function.
 #endif /* VENDOR_EDIT */
-	  
+
+#ifdef VENDOR_EDIT 
+#Tong.han@BSP.group.TP, 2014/12/25, Add for kernel OPPO_DEBUG_ASSERT macro
+      config OPPO_DEBUG_ASSERT
+      bool "config oppo debug assert"
+      default y
+      help 
+      This is the oppo debug assert function, open it will register the  
+      device, which under /dev/otracer.
+#endif /* VENDOR_EDIT */
 endif

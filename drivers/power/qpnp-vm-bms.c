@@ -55,6 +55,7 @@
 #ifdef VENDOR_EDIT
 //Fuchun.Liao@Mobile.BSP.CHG 2014-10-13 add for soc_jumped when charger_boot
 extern unsigned int boot_reason;
+#define PON_REASON_HARD_RESET	1
 #define PON_REASON_DC_CHG		4
 #define PON_REASON_USB_CHG		5
 #define PON_REASON_CBLPWR		7
@@ -1454,6 +1455,10 @@ static int report_vm_bms_soc(struct qpnp_bms_chip *chip)
 	int time_since_last_change_sec = 0, charge_time_sec = 0;
 	unsigned long last_change_sec;
 	bool charging;
+#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015-01-10 add for pon_soc is 98% after quick_boot charge_full
+	static int report_times = 0;
+#endif
 
 	soc = chip->calculated_soc;
 
@@ -1542,12 +1547,29 @@ static int report_vm_bms_soc(struct qpnp_bms_chip *chip)
 	 * during bootup if soc is 100:
 	 */
 	soc = bound_soc(soc);
+
+#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015-01-10 add for pon_soc is 98% after quick_boot charge_full
+	if((report_times < 10) && chip->last_soc == 100 && soc > 93){
+		pr_err("soc:%d,chip->last_soc:%d,report_times:%d\n",soc,chip->last_soc,report_times);
+		report_times++;
+		chip->last_soc = 100;
+	}
+	else if ((soc != chip->last_soc) || (soc == 100)) {
+		report_times = 10;
+		chip->last_soc = soc;
+		check_eoc_condition(chip);
+		if ((chip->dt.cfg_soc_resume_limit > 0) && !charging)
+			check_recharge_condition(chip);
+	}
+#else
 	if ((soc != chip->last_soc) || (soc == 100)) {
 		chip->last_soc = soc;
 		check_eoc_condition(chip);
 		if ((chip->dt.cfg_soc_resume_limit > 0) && !charging)
 			check_recharge_condition(chip);
 	}
+#endif
 
 	pr_debug("last_soc=%d calculated_soc=%d soc=%d time_since_last_change=%d\n",
 			chip->last_soc, chip->calculated_soc,
@@ -2563,7 +2585,12 @@ static int calculate_initial_soc(struct qpnp_bms_chip *chip)
 	if (rc < 0  || chip->dt.cfg_ignore_shutdown_soc)
 		shutdown_soc_invalid = 1;
 
+#ifndef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015-01-28 modify for use hard_reset instead of warm_reset
 	if (chip->warm_reset) {
+#else
+	if(boot_reason == PON_REASON_HARD_RESET) {
+#endif
 		/*
 		 * if we have powered on from warm reset -
 		 * Always use shutdown SOC. If shudown SOC is invalid then
@@ -3152,7 +3179,7 @@ static int set_battery_data(struct qpnp_bms_chip *chip)
 				return -EINVAL;
 			}
 		}
-	} else if(is_project(OPPO_14037)){
+	} else if(is_project(OPPO_14037) || is_project(OPPO_15057)){
 		rc = opchg_get_bq2022_manufacture_id();
 		if(rc < 0){
 			pr_err("%s get bq2022 manu id fail\n",__func__);

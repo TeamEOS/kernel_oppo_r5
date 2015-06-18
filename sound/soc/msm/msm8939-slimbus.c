@@ -31,7 +31,7 @@
 #include <sound/q6core.h>
 #include <sound/pcm_params.h>
 #include <soc/qcom/socinfo.h>
-#include <qdsp6v2/msm-pcm-routing-v2.h>
+#include "qdsp6v2/msm-pcm-routing-v2.h"
 #include <mach/oppo_project.h>
 #include "../codecs/wcd9xxx-common.h"
 #include "../codecs/wcd9306.h"
@@ -2897,7 +2897,7 @@ static int msm8939_asoc_machine_probe(struct platform_device *pdev)
 				pdata->ext_pa = (pdata->ext_pa | QUAT_MI2S_ID);
 		}
 	}
-	pr_err("zhzhyon:pdata->ext_pa = %d\n",pdata->ext_pa);
+	//pr_err("pdata->ext_pa = %d\n",pdata->ext_pa);
 
 	/*OPPO 2014-08-25 zhzhyon Add end*/
 
@@ -2926,10 +2926,10 @@ static int msm8939_asoc_machine_probe(struct platform_device *pdev)
 	if (gpio_is_valid(wcd9xxx_mbhc_cfg.ap_audio_enable_gpio)) 
 	{
 		gpio_request(wcd9xxx_mbhc_cfg.ap_audio_enable_gpio,"ap_audio_enable");
-		pr_err("zhzhyon:set ap audio enable\n");
+		//pr_err("zhzhyon:set ap audio enable\n");
 		//gpio_direction_output(wcd9xxx_mbhc_cfg->ap_audio_enable_gpio, 1);
 		ret = gpio_get_value_cansleep(wcd9xxx_mbhc_cfg.ap_audio_enable_gpio);
-		pr_err("zhzhyon:gpio ap audio enable set %d\n",ret);
+		//pr_err("zhzhyon:gpio ap audio enable set %d\n",ret);
 		
 	}
 	/*OPPO 2014-07-24 zhzhyon Add for tfa9890*/
@@ -3010,10 +3010,10 @@ static int msm8939_asoc_machine_probe(struct platform_device *pdev)
 	if(hs_det_comp == NULL)
 	{
 		hs_det_comp = regulator_get(&pdev->dev, "hs_det_compare");
-		pr_err("zhzhyon:test pdata->hs_det_comp = %p\n",hs_det_comp);
+		//pr_err("zhzhyon:test pdata->hs_det_comp = %p\n",hs_det_comp);
 		if(IS_ERR(hs_det_comp))
 		{
-			pr_err("zhzhyon:error!!!!!!!!!!\n");
+			pr_err("error!!!!!!!!!!\n");
 		}
 		ret = regulator_enable(hs_det_comp);
 		if(ret)

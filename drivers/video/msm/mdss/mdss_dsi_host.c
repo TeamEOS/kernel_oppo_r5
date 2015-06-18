@@ -31,6 +31,13 @@
 #ifdef VENDOR_EDIT
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/08/25  Add for crash when set brightness */
 #include <mach/oppo_project.h>
+#include <mach/oppo_boot_mode.h>
+#endif /*VENDOR_EDIT*/
+
+#ifdef VENDOR_EDIT
+/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+extern int RTC597125_15005DEBUG;
+/*  YongPeng.Yi@SWDP.MultiMedia END */
 #endif /*VENDOR_EDIT*/
 
 #define VSYNC_PERIOD 17
@@ -53,6 +60,9 @@ struct mdss_hw mdss_dsi1_hw = {
 #define DSI_EVENT_Q_MAX	4
 
 #define DSI_BTA_EVENT_TIMEOUT (HZ / 10)
+
+/* Mutex common for both the controllers */
+static struct mutex dsi_mtx;
 
 /* event */
 struct dsi_event_q {
@@ -111,6 +121,7 @@ void mdss_dsi_ctrl_init(struct mdss_dsi_ctrl_pdata *ctrl)
 	if (dsi_event.inited == 0) {
 		kthread_run(dsi_event_thread, (void *)&dsi_event,
 						"mdss_dsi_event");
+		mutex_init(&dsi_mtx);
 		dsi_event.inited  = 1;
 	}
 }
@@ -355,6 +366,12 @@ void mdss_dsi_host_init(struct mdss_panel_data *pdata)
 	data = 0;
 	if (pinfo->rx_eot_ignore)
 		data |= BIT(4);
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/12/31  Add for  blurred screen */
+	if(is_project(OPPO_14005)){
+		pinfo->tx_eot_append = 1;
+	}
+#endif /*VENDOR_EDIT*/
 	if (pinfo->tx_eot_append)
 		data |= BIT(0);
 	MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x00cc,
@@ -363,7 +380,7 @@ void mdss_dsi_host_init(struct mdss_panel_data *pdata)
 
 	/* allow only ack-err-status  to generate interrupt */
 	/* DSI_ERR_INT_MASK0 */
-	MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x010c, 0x13ff3fe0);
+	MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x010c, 0x03f03fe0);
 
 	intr_ctrl |= DSI_INTR_ERROR_MASK;
 	MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x0110,
@@ -463,12 +480,186 @@ void mdss_dsi_sw_reset_restore(struct mdss_dsi_ctrl_pdata *ctrl)
 	wmb();	/* make sure dsi controller enabled again */
 }
 
+static void mdss_dsi_ctl_phy_reset(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+	u32 data0, data1;
+	struct mdss_dsi_ctrl_pdata *ctrl0, *ctrl1;
+	u32 ln0, ln1, ln_ctrl0, ln_ctrl1, i;
+	/*
+	 * Add 2 ms delay suggested by HW team.
+	 * Check clk lane stop state after every 200 us
+	 */
+	u32 loop = 10, u_dly = 200;
+	pr_debug("%s: MDSS DSI CTRL and PHY reset. ctrl-num = %d\n",
+					__func__, ctrl->ndx);
+
+	if (mdss_dsi_split_display_enabled()) {
+		pr_debug("%s: Split display enabled\n", __func__);
+		ctrl0 = mdss_dsi_get_ctrl_by_index(DSI_CTRL_0);
+		ctrl1 = mdss_dsi_get_ctrl_by_index(DSI_CTRL_1);
+
+		if (ctrl0->recovery)
+			ctrl0->recovery->fxn(ctrl0->recovery->data,
+					MDP_INTF_DSI_VIDEO_FIFO_OVERFLOW);
+		/*
+		 * Disable PHY contention detection and receive.
+		 * Configure the strength ctrl 1 register.
+		 */
+		MIPI_OUTP((ctrl0->phy_io.base) + 0x0188, 0);
+		MIPI_OUTP((ctrl1->phy_io.base) + 0x0188, 0);
+
+		data0 = MIPI_INP(ctrl0->ctrl_base + 0x0004);
+		data1 = MIPI_INP(ctrl1->ctrl_base + 0x0004);
+		/* Disable DSI video mode */
+		MIPI_OUTP(ctrl0->ctrl_base + 0x004, 0x1f5);
+		MIPI_OUTP(ctrl1->ctrl_base + 0x004, 0x1f5);
+		/* Disable DSI controller */
+		MIPI_OUTP(ctrl0->ctrl_base + 0x004, 0x1f4);
+		MIPI_OUTP(ctrl1->ctrl_base + 0x004, 0x1f4);
+		/* "Force On" all dynamic clocks */
+		MIPI_OUTP(ctrl0->ctrl_base + 0x11c, 0x100a00);
+		MIPI_OUTP(ctrl1->ctrl_base + 0x11c, 0x100a00);
+
+		/* DSI_SW_RESET */
+		MIPI_OUTP(ctrl0->ctrl_base + 0x118, 0x1);
+		MIPI_OUTP(ctrl1->ctrl_base + 0x118, 0x1);
+		wmb();
+		MIPI_OUTP(ctrl0->ctrl_base + 0x118, 0x0);
+		MIPI_OUTP(ctrl1->ctrl_base + 0x118, 0x0);
+		wmb();
+
+		/* Remove "Force On" all dynamic clocks */
+		MIPI_OUTP(ctrl0->ctrl_base + 0x11c, 0x00); /* DSI_CLK_CTRL */
+		MIPI_OUTP(ctrl1->ctrl_base + 0x11c, 0x00); /* DSI_CLK_CTRL */
+
+		/* Enable DSI controller */
+		MIPI_OUTP(ctrl0->ctrl_base + 0x004, 0x1f5);
+		MIPI_OUTP(ctrl1->ctrl_base + 0x004, 0x1f5);
+
+		/*
+		 * Toggle Clk lane Force TX stop so that
+		 * clk lane status is no more in stop state
+		 */
+		ln0 = MIPI_INP(ctrl0->ctrl_base + 0x00a8);
+		ln1 = MIPI_INP(ctrl1->ctrl_base + 0x00a8);
+		pr_debug("%s: lane status, ctrl0 = 0x%x, ctrl1 = 0x%x\n",
+			 __func__, ln0, ln1);
+		ln_ctrl0 = MIPI_INP(ctrl0->ctrl_base + 0x00ac);
+		ln_ctrl1 = MIPI_INP(ctrl1->ctrl_base + 0x00ac);
+		MIPI_OUTP(ctrl0->ctrl_base + 0x0ac, ln_ctrl0 | BIT(20));
+		MIPI_OUTP(ctrl1->ctrl_base + 0x0ac, ln_ctrl1 | BIT(20));
+		ln_ctrl0 = MIPI_INP(ctrl0->ctrl_base + 0x00ac);
+		ln_ctrl1 = MIPI_INP(ctrl1->ctrl_base + 0x00ac);
+		for (i = 0; i < loop; i++) {
+			ln0 = MIPI_INP(ctrl0->ctrl_base + 0x00a8);
+			ln1 = MIPI_INP(ctrl1->ctrl_base + 0x00a8);
+			if ((ln0 == 0x1f1f) && (ln1 == 0x1f1f))
+				break;
+			else
+				/* Check clk lane stopState for every 200us */
+				udelay(u_dly);
+		}
+		if (i == loop) {
+			MDSS_XLOG(ctrl0->ndx, ln0, 0x1f1f);
+			MDSS_XLOG(ctrl1->ndx, ln1, 0x1f1f);
+			pr_err("Clock lane still in stop state");
+			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0", "dsi1",
+						"panic");
+		}
+		pr_debug("%s: lane ctrl, ctrl0 = 0x%x, ctrl1 = 0x%x\n",
+			 __func__, ln0, ln1);
+		MIPI_OUTP(ctrl0->ctrl_base + 0x0ac, ln_ctrl0 & ~BIT(20));
+		MIPI_OUTP(ctrl1->ctrl_base + 0x0ac, ln_ctrl1 & ~BIT(20));
+
+		/* Enable Video mode for DSI controller */
+		MIPI_OUTP(ctrl0->ctrl_base + 0x004, 0x1f7);
+		MIPI_OUTP(ctrl1->ctrl_base + 0x004, 0x1f7);
+
+		/*
+		 * Enable PHY contention detection and receive.
+		 * Configure the strength ctrl 1 register.
+		 */
+		MIPI_OUTP((ctrl0->phy_io.base) + 0x0188, 0x6);
+		MIPI_OUTP((ctrl1->phy_io.base) + 0x0188, 0x6);
+		/*
+		 * Add sufficient delay to make sure
+		 * pixel transmission as started
+		 */
+		udelay(200);
+	} else {
+		if (ctrl->recovery)
+			ctrl->recovery->fxn(ctrl->recovery->data,
+					MDP_INTF_DSI_VIDEO_FIFO_OVERFLOW);
+		/* Disable PHY contention detection and receive */
+		MIPI_OUTP((ctrl->phy_io.base) + 0x0188, 0);
+
+		data0 = MIPI_INP(ctrl->ctrl_base + 0x0004);
+		/* Disable DSI video mode */
+		MIPI_OUTP(ctrl->ctrl_base + 0x004, 0x1f5);
+		/* Disable DSI controller */
+		MIPI_OUTP(ctrl->ctrl_base + 0x004, 0x1f4);
+		/* "Force On" all dynamic clocks */
+		MIPI_OUTP(ctrl->ctrl_base + 0x11c, 0x100a00);
+
+		/* DSI_SW_RESET */
+		MIPI_OUTP(ctrl->ctrl_base + 0x118, 0x1);
+		wmb();
+		MIPI_OUTP(ctrl->ctrl_base + 0x118, 0x0);
+		wmb();
+
+		/* Remove "Force On" all dynamic clocks */
+		MIPI_OUTP(ctrl->ctrl_base + 0x11c, 0x00);
+		/* Enable DSI controller */
+		MIPI_OUTP(ctrl->ctrl_base + 0x004, 0x1f5);
+
+		/*
+		 * Toggle Clk lane Force TX stop so that
+		 * clk lane status is no more in stop state
+		 */
+		ln0 = MIPI_INP(ctrl->ctrl_base + 0x00a8);
+		pr_debug("%s: lane status, ctrl = 0x%x\n",
+			 __func__, ln0);
+		ln_ctrl0 = MIPI_INP(ctrl->ctrl_base + 0x00ac);
+		MIPI_OUTP(ctrl->ctrl_base + 0x0ac, ln_ctrl0 | BIT(20));
+		ln_ctrl0 = MIPI_INP(ctrl->ctrl_base + 0x00ac);
+		for (i = 0; i < loop; i++) {
+			ln0 = MIPI_INP(ctrl->ctrl_base + 0x00a8);
+			if (ln0 == 0x1f1f)
+				break;
+			else
+				/* Check clk lane stopState for every 200us */
+				udelay(u_dly);
+		}
+		if (i == loop) {
+			MDSS_XLOG(ctrl->ndx, ln0, 0x1f1f);
+			pr_err("Clock lane still in stop state");
+			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0", "dsi1",
+						"panic");
+		}
+		pr_debug("%s: lane status = 0x%x\n",
+			 __func__, ln0);
+		MIPI_OUTP(ctrl->ctrl_base + 0x0ac, ln_ctrl0 & ~BIT(20));
+
+		/* Enable Video mode for DSI controller */
+		MIPI_OUTP(ctrl->ctrl_base + 0x004, 0x1f7);
+		/* Enable PHY contention detection and receiver */
+		MIPI_OUTP((ctrl->phy_io.base) + 0x0188, 0x6);
+		/*
+		 * Add sufficient delay to make sure
+		 * pixel transmission as started
+		 */
+		udelay(200);
+	}
+	pr_debug("Recovery done\n");
+}
+
 void mdss_dsi_err_intr_ctrl(struct mdss_dsi_ctrl_pdata *ctrl, u32 mask,
 					int enable)
 {
 	u32 intr;
 
 	intr = MIPI_INP(ctrl->ctrl_base + 0x0110);
+	intr &= DSI_INTR_TOTAL_MASK;
 
 	if (enable)
 		intr |= mask;
@@ -566,7 +757,8 @@ void mdss_dsi_op_mode_config(int mode,
 
 	if (mode == DSI_VIDEO_MODE) {
 		dsi_ctrl |= 0x03;
-		intr_ctrl = DSI_INTR_CMD_DMA_DONE_MASK | DSI_INTR_BTA_DONE_MASK;
+		intr_ctrl = DSI_INTR_CMD_DMA_DONE_MASK | DSI_INTR_BTA_DONE_MASK
+			| DSI_INTR_ERROR_MASK;
 	} else {		/* command mode */
 		dsi_ctrl |= 0x05;
 		if (pdata->panel_info.type == MIPI_VIDEO_PANEL)
@@ -639,7 +831,12 @@ static int mdss_dsi_read_status(struct mdss_dsi_ctrl_pdata *ctrl)
 	return mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
 
-
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2015/01/09  Add for 14045 17LCD ESD */
+extern u32 mdss_dsi_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl, char cmd0,
+		char cmd1, void (*fxn)(int), char *rbuf, int len);
+static char esd_read_14045[3];
+#endif /*VENDOR_EDIT*/
 /**
  * mdss_dsi_reg_status_check() - Check dsi panel status through reg read
  * @ctrl_pdata: pointer to the dsi controller structure
@@ -654,11 +851,22 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	int ret = 0;
 
+	/*int i = 0;
+	while(i<4){
+		pr_err("[YYP] ctrl_pdata->status_buf.data[%d] = %x\n", i, ctrl_pdata->status_buf.data[i]);
+		i++;
+	}*/
+
 	if (ctrl_pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
 		return 0;
 	}
-
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2015/01/09  Add for 14045 17LCD ESD */
+	esd_read_14045[0] = 0;
+	esd_read_14045[1] = 0;
+	esd_read_14045[2] = 0;
+#endif /*VENDOR_EDIT*/
 	pr_debug("%s: Checking Register status\n", __func__);
 
 	mdss_dsi_clk_ctrl(ctrl_pdata, DSI_ALL_CLKS, 1);
@@ -666,6 +874,8 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	if (ctrl_pdata->status_cmds.link_state == DSI_HS_MODE)
 		mdss_dsi_set_tx_power_mode(0, &ctrl_pdata->panel_data);
 
+#ifndef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2015/01/09  Modify for 14045 17LCD ESD */
 	ret = mdss_dsi_read_status(ctrl_pdata);
 
 	if (ctrl_pdata->status_cmds.link_state == DSI_HS_MODE)
@@ -676,6 +886,35 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	} else {
 		pr_err("%s: Read status register returned error\n", __func__);
 	}
+#else /*VENDOR_EDIT*/
+	if(!is_project(OPPO_14045)){
+		ret = mdss_dsi_read_status(ctrl_pdata);
+
+		if (ctrl_pdata->status_cmds.link_state == DSI_HS_MODE)
+			mdss_dsi_set_tx_power_mode(1, &ctrl_pdata->panel_data);
+
+		if (ret == 0) {
+			ret = ctrl_pdata->check_read_status(ctrl_pdata);
+		} else {
+			pr_err("%s: Read status register returned error\n", __func__);
+		}
+	}else{
+		mdss_dsi_panel_cmd_read(ctrl_pdata,0x0a,0x00,NULL,&esd_read_14045[0],1);
+		mdss_dsi_panel_cmd_read(ctrl_pdata,0x09,0x00,NULL,&esd_read_14045[1],1);
+		mdss_dsi_panel_cmd_read(ctrl_pdata,0xac,0x00,NULL,&esd_read_14045[2],1);
+		//pr_err("0x0a = 0x%x   0x09 = 0x%x   0xac=0x%x \n",esd_read_14045[0],esd_read_14045[1],esd_read_14045[2]);
+
+		if (ctrl_pdata->status_cmds.link_state == DSI_HS_MODE)
+			mdss_dsi_set_tx_power_mode(1, &ctrl_pdata->panel_data);
+
+		if(esd_read_14045[0]!=0x9c || esd_read_14045[1]!=0x80 || esd_read_14045[2]!=0x00){
+			pr_err("%s: Read status register returned error\n", __func__);
+			ret =  -EINVAL;
+		}else{
+			ret = 1;
+		}
+	}
+#endif /*VENDOR_EDIT*/
 
 	mdss_dsi_clk_ctrl(ctrl_pdata, DSI_ALL_CLKS, 0);
 	pr_debug("%s: Read register done with ret: %d\n", __func__, ret);
@@ -775,7 +1014,12 @@ static int mdss_dsi_cmds2buf_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 	struct dsi_cmd_desc *cm;
 	struct dsi_ctrl_hdr *dchdr;
 	int len, wait, tot = 0;
-
+#ifdef VENDOR_EDIT
+	/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+	if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
+	pr_err("%s++  cnt = %d\n",__func__,cnt);
+	/*  YongPeng.Yi@SWDP.MultiMedia END */
+#endif /*VENDOR_EDIT*/
 	tp = &ctrl->tx_buf;
 	mdss_dsi_buf_init(tp);
 	cm = cmds;
@@ -812,6 +1056,12 @@ static int mdss_dsi_cmds2buf_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 		}
 		cm++;
 	}
+#ifdef VENDOR_EDIT
+/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
+	pr_err("%s --\n",__func__);
+/*  YongPeng.Yi@SWDP.MultiMedia END */
+#endif /*VENDOR_EDIT*/
 	return tot;
 }
 
@@ -859,7 +1109,12 @@ int mdss_dsi_cmds_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 	int ret = 0;
 	bool ctrl_restore = false, mctrl_restore = false;
 	struct mdss_dsi_ctrl_pdata *mctrl = NULL;
-
+#ifdef VENDOR_EDIT
+	/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+	if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
+	pr_err("%s ++\n",__func__);
+	/*  YongPeng.Yi@SWDP.MultiMedia END */
+#endif /*VENDOR_EDIT*/
 	/*
 	 * In broadcast mode, the configuration for master controller
 	 * would be done when the slave controller is configured
@@ -867,6 +1122,13 @@ int mdss_dsi_cmds_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 	if (mdss_dsi_is_master_ctrl(ctrl)) {
 		pr_debug("%s: Broadcast mode enabled. skipping config for ctrl%d\n",
 			__func__, ctrl->ndx);
+#ifdef VENDOR_EDIT
+/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
+		pr_err("%s: Broadcast mode enabled. skipping config for ctrl%d\n",
+			__func__, ctrl->ndx);
+/* YongPeng.Yi@SWDP.MultiMedia END */
+#endif /*VENDOR_EDIT*/
 		return 0;
 	}
 
@@ -1202,6 +1464,7 @@ void mdss_dsi_wait4video_done(struct mdss_dsi_ctrl_pdata *ctrl)
 
 	/* DSI_INTL_CTRL */
 	data = MIPI_INP((ctrl->ctrl_base) + 0x0110);
+	data &= DSI_INTR_TOTAL_MASK;
 	data |= DSI_INTR_VIDEO_DONE_MASK;
 
 	MIPI_OUTP((ctrl->ctrl_base) + 0x0110, data);
@@ -1215,6 +1478,7 @@ void mdss_dsi_wait4video_done(struct mdss_dsi_ctrl_pdata *ctrl)
 			msecs_to_jiffies(VSYNC_PERIOD * 4));
 
 	data = MIPI_INP((ctrl->ctrl_base) + 0x0110);
+	data &= DSI_INTR_TOTAL_MASK;
 	data &= ~DSI_INTR_VIDEO_DONE_MASK;
 	MIPI_OUTP((ctrl->ctrl_base) + 0x0110, data);
 }
@@ -1281,7 +1545,12 @@ int mdss_dsi_cmdlist_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 				struct dcs_cmd_req *req)
 {
 	int ret, ret_val = -EINVAL;
-
+#ifdef VENDOR_EDIT
+/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
+pr_err("%s ++\n",__func__);
+/*  YongPeng.Yi@SWDP.MultiMedia END */
+#endif /*VENDOR_EDIT*/
 	ret = mdss_dsi_cmds_tx(ctrl, req->cmds, req->cmds_cnt);
 
 	if (!IS_ERR_VALUE(ret))
@@ -1289,7 +1558,12 @@ int mdss_dsi_cmdlist_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 
 	if (req->cb)
 		req->cb(ret);
-
+#ifdef VENDOR_EDIT
+/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
+pr_err("%s --\n",__func__);
+/*  YongPeng.Yi@SWDP.MultiMedia END */
+#endif /*VENDOR_EDIT*/
 	return ret_val;
 }
 
@@ -1325,6 +1599,12 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	struct dcs_cmd_req *req;
 	int ret = -EINVAL;
 	int rc = 0;
+#ifdef VENDOR_EDIT
+/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
+	pr_err("%s ++\n",__func__);
+/*  YongPeng.Yi@SWDP.MultiMedia END */
+#endif /*VENDOR_EDIT*/
 	mutex_lock(&ctrl->cmd_mutex);
 	req = mdss_dsi_cmdlist_get(ctrl);
 
@@ -1334,10 +1614,14 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	/* make sure dsi_cmd_mdp is idle */
 	mdss_dsi_cmd_mdp_busy(ctrl);
 
-	pr_debug("%s: ctrl=%d from_mdp=%d pid=%d\n", __func__,
-				ctrl->ndx, from_mdp, current->pid);
-
-	if (req == NULL)
+	pr_debug("%s:  from_mdp=%d pid=%d\n", __func__, from_mdp, current->pid);
+#ifdef VENDOR_EDIT
+/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
+	pr_err("%s:  from_mdp=%d pid=%d\n", __func__, from_mdp, current->pid);
+/*  YongPeng.Yi@SWDP.MultiMedia END */
+#endif /*VENDOR_EDIT*/
+	if (req == NULL)
 		goto need_lock;
 
 	MDSS_XLOG(ctrl->ndx, req->flags, req->cmds_cnt, from_mdp, current->pid);
@@ -1348,14 +1632,16 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	 * also, axi bus bandwidth need since dsi controller will
 	 * fetch dcs commands from axi bus
 	 */
-#ifdef VENDOR_EDIT
-/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/08/25  Add for crash when set brightness */
-	if (is_project(OPPO_14005))
-		mdss_bus_bandwidth_ctrl(1);
-#endif /*VENDOR_EDIT*/
+	mdss_bus_bandwidth_ctrl(1);
 	mdss_bus_scale_set_quota(MDSS_HW_DSI0, SZ_1M, 0, SZ_1M);
 
 	pr_debug("%s:  from_mdp=%d pid=%d\n", __func__, from_mdp, current->pid);
+#ifdef VENDOR_EDIT
+/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
+	pr_err("%s:  from_mdp=%d pid=%d\n", __func__, from_mdp, current->pid);
+/*  YongPeng.Yi@SWDP.MultiMedia END */
+#endif /*VENDOR_EDIT*/
 	mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 1);
 
 	rc = mdss_iommu_ctrl(1);
@@ -1371,11 +1657,7 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	mdss_iommu_ctrl(0);
 	mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 0);
 	mdss_bus_scale_set_quota(MDSS_HW_DSI0, 0, 0, 0);
-#ifdef VENDOR_EDIT
-/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/08/25  Add for crash when set brightness */
-	if (is_project(OPPO_14005))
-		mdss_bus_bandwidth_ctrl(0);
-#endif /*VENDOR_EDIT*/
+	mdss_bus_bandwidth_ctrl(0);
 need_lock:
 
     if (from_mdp) { /* from pipe_commit */
@@ -1387,6 +1669,12 @@ need_lock:
 	MDSS_XLOG(ctrl->ndx, from_mdp, ctrl->mdp_busy, current->pid,
 							XLOG_FUNC_EXIT);
 	mutex_unlock(&ctrl->cmd_mutex);
+#ifdef VENDOR_EDIT
+/* YongPeng.Yi@SWDP.MultiMedia, 2015/03/11  Add for 15005 RTC597125 TEST START */
+if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
+	pr_err("%s --\n",__func__);
+/*  YongPeng.Yi@SWDP.MultiMedia END */
+#endif /*VENDOR_EDIT*/
 	return ret;
 }
 
@@ -1415,7 +1703,7 @@ static int dsi_event_thread(void *data)
 	struct mdss_dsi_ctrl_pdata *ctrl;
 	unsigned long flag;
 	struct sched_param param;
-	u32 todo = 0;
+	u32 todo = 0, ln_status;
 	int ret;
 
 	param.sched_priority = 16;
@@ -1445,12 +1733,19 @@ static int dsi_event_thread(void *data)
 
 		if (todo & DSI_EV_MDP_FIFO_UNDERFLOW) {
 			if (ctrl->recovery) {
+				pr_debug("%s: Handling underflow event\n",
+							__func__);
+				mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 1);
 				mdss_dsi_sw_reset_restore(ctrl);
-				ctrl->recovery->fxn(ctrl->recovery->data);
+				ctrl->recovery->fxn(ctrl->recovery->data,
+					MDP_INTF_DSI_CMD_FIFO_UNDERFLOW);
+				mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 0);
+
 			}
 		}
 #ifdef VENDOR_EDIT //Modify by Tong.han@Bsp.group.TP.BL 2014-9-30 ,for 14043 screen blink
-	if(!is_project(OPPO_14043)){
+					/*YongPeng.Yi@PhoneSW.Multimedia, 2015/01/30 Add for 15005 BOE LCD screen blink*/
+	if(!is_project(OPPO_14043)&&!is_project(OPPO_14037)&&!is_project(OPPO_15005)&&!is_project(OPPO_15057)){
 		if (todo & DSI_EV_DSI_FIFO_EMPTY)
 			mdss_dsi_sw_reset_restore(ctrl);
 	}
@@ -1459,7 +1754,37 @@ static int dsi_event_thread(void *data)
 		mdss_dsi_sw_reset_restore(ctrl);
 #endif/*VENDOR_EDIT*/
 
+		if (todo & DSI_EV_DLNx_FIFO_OVERFLOW) {
+			mutex_lock(&dsi_mtx);
+			/*
+			 * Run the overflow recovery sequence only when
+			 * data lanes are in stop state and
+			 * clock lane is not in Stop State.
+			 */
+			ln_status = MIPI_INP(ctrl->ctrl_base + 0x00a8);
+			pr_debug("%s: lane_status: 0x%x\n",
+				       __func__, ln_status);
+			if (ctrl->recovery
+					&& (ln_status
+						& DSI_DATA_LANES_STOP_STATE)
+					&& !(ln_status
+						& DSI_CLK_LANE_STOP_STATE)) {
+				pr_debug("%s: Handling overflow event.\n",
+								__func__);
+				mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 1);
+				mdss_dsi_ctl_phy_reset(ctrl);
+				mdss_dsi_err_intr_ctrl(ctrl,
+						DSI_INTR_ERROR_MASK, 1);
+				mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 0);
+			}
+			mutex_unlock(&dsi_mtx);
+		}
+
+#ifndef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2015/03/04  Modify for 14041 15005 ftm sleep reboot */
 		if (todo & DSI_EV_MDP_BUSY_RELEASE) {
+			pr_debug("%s: Handling MDP_BUSY_RELEASE event\n",
+							__func__);
 			spin_lock_irqsave(&ctrl->mdp_lock, flag);
 			ctrl->mdp_busy = false;
 			mdss_dsi_disable_irq_nosync(ctrl, DSI_MDP_TERM);
@@ -1469,6 +1794,22 @@ static int dsi_event_thread(void *data)
 			/* enable dsi error interrupt */
 			mdss_dsi_err_intr_ctrl(ctrl, DSI_INTR_ERROR_MASK, 1);
 		}
+#else /*VENDOR_EDIT*/
+		if(!(MSM_BOOT_MODE__FACTORY == get_boot_mode() && (is_project(OPPO_14043) || is_project(OPPO_14037) ||is_project(OPPO_15005) || is_project(OPPO_15057)))){
+			if (todo & DSI_EV_MDP_BUSY_RELEASE) {
+				pr_debug("%s: Handling MDP_BUSY_RELEASE event\n",
+								__func__);
+				spin_lock_irqsave(&ctrl->mdp_lock, flag);
+				ctrl->mdp_busy = false;
+				mdss_dsi_disable_irq_nosync(ctrl, DSI_MDP_TERM);
+				complete(&ctrl->mdp_comp);
+				spin_unlock_irqrestore(&ctrl->mdp_lock, flag);
+
+				/* enable dsi error interrupt */
+				mdss_dsi_err_intr_ctrl(ctrl, DSI_INTR_ERROR_MASK, 1);
+			}
+		}
+#endif /*VENDOR_EDIT*/
 
 	}
 
@@ -1488,7 +1829,7 @@ void mdss_dsi_ack_err_status(struct mdss_dsi_ctrl_pdata *ctrl)
 		MIPI_OUTP(base + 0x0068, status);
 		/* Writing of an extra 0 needed to clear error bits */
 		MIPI_OUTP(base + 0x0068, 0);
-		pr_err("%s: status=%x\n", __func__, status);
+		pr_debug("%s: status=%x\n", __func__, status);
 	}
 }
 
@@ -1503,7 +1844,7 @@ void mdss_dsi_timeout_status(struct mdss_dsi_ctrl_pdata *ctrl)
 
 	if (status & 0x0111) {
 		MIPI_OUTP(base + 0x00c0, status);
-		pr_err("%s: status=%x\n", __func__, status);
+		pr_debug("%s: status=%x\n", __func__, status);
 	}
 }
 
@@ -1534,13 +1875,30 @@ void mdss_dsi_fifo_status(struct mdss_dsi_ctrl_pdata *ctrl)
 	/* fifo underflow, overflow and empty*/
 	if (status & 0xcccc4489) {
 		MIPI_OUTP(base + 0x000c, status);
-		pr_err("%s: status=%x\n", __func__, status);
+		pr_debug("%s: status=%x\n", __func__, status);
+#ifndef VENDOR_EDIT
+/*xiaori.yuan@PhoneSW.Multimedia, 2015/02/10 Add for  14043 15005 BOE LCD screen blink*/
+		if (status & 0x44440000) {/* DLNx_HS_FIFO_OVERFLOW */
+			dsi_send_events(ctrl, DSI_EV_DLNx_FIFO_OVERFLOW);
+			/* Ignore FIFO EMPTY when overflow happens */
+			status = status & 0xeeeeffff;
+		}
+#else /*VENDOR_EDIT*/
+		if(!is_project(OPPO_14043)&&!is_project(OPPO_14037)&&!is_project(OPPO_15005)&&!is_project(OPPO_15057)){
+			if (status & 0x44440000) {/* DLNx_HS_FIFO_OVERFLOW */
+				dsi_send_events(ctrl, DSI_EV_DLNx_FIFO_OVERFLOW);
+				/* Ignore FIFO EMPTY when overflow happens */
+				status = status & 0xeeeeffff;
+			}
+		}
+#endif /*VENDOR_EDIT*/
 		if (status & 0x0080)  /* CMD_DMA_FIFO_UNDERFLOW */
 			dsi_send_events(ctrl, DSI_EV_MDP_FIFO_UNDERFLOW);
 			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0", "dsi1",
 						"edp", "hdmi", "panic");
 #ifdef VENDOR_EDIT //Modify by Tong.han@Bsp.group.TP.BL 2014-9-30 ,for 14043 screen blink
-		if(!is_project(OPPO_14043)){
+					/*YongPeng.Yi@PhoneSW.Multimedia, 2015/01/30 Add for 15005 BOE LCD screen blink*/
+		if(!is_project(OPPO_14043)&&!is_project(OPPO_14037)&&!is_project(OPPO_15005)&&!is_project(OPPO_15057)){
 			if (status & 0x11110000) /* DLN_FIFO_EMPTY */
 				dsi_send_events(ctrl, DSI_EV_DSI_FIFO_EMPTY);
 		}
@@ -1584,6 +1942,7 @@ void mdss_dsi_clk_status(struct mdss_dsi_ctrl_pdata *ctrl)
 
 void mdss_dsi_error(struct mdss_dsi_ctrl_pdata *ctrl)
 {
+	u32 intr;
 
 	/* disable dsi error interrupt */
 	mdss_dsi_err_intr_ctrl(ctrl, DSI_INTR_ERROR_MASK, 0);
@@ -1595,6 +1954,12 @@ void mdss_dsi_error(struct mdss_dsi_ctrl_pdata *ctrl)
 	mdss_dsi_timeout_status(ctrl);	/* mask0, 0x0e0 */
 	mdss_dsi_status(ctrl);		/* mask0, 0xc0100 */
 	mdss_dsi_dln0_phy_err(ctrl);	/* mask0, 0x3e00000 */
+
+	/* clear dsi error interrupt */
+	intr = MIPI_INP(ctrl->ctrl_base + 0x0110);
+	intr &= DSI_INTR_TOTAL_MASK;
+	intr |= DSI_INTR_ERROR;
+	MIPI_OUTP(ctrl->ctrl_base + 0x0110, intr);
 
 	dsi_send_events(ctrl, DSI_EV_MDP_BUSY_RELEASE);
 }
@@ -1613,7 +1978,7 @@ irqreturn_t mdss_dsi_isr(int irq, void *ptr)
 	}
 
 	isr = MIPI_INP(ctrl->ctrl_base + 0x0110);/* DSI_INTR_CTRL */
-	MIPI_OUTP(ctrl->ctrl_base + 0x0110, isr);
+	MIPI_OUTP(ctrl->ctrl_base + 0x0110, (isr & ~DSI_INTR_ERROR));
 
 	if (mdss_dsi_is_slave_ctrl(ctrl)) {
 		mctrl = mdss_dsi_get_master_ctrl();
@@ -1633,7 +1998,7 @@ irqreturn_t mdss_dsi_isr(int irq, void *ptr)
 
 	if (isr & DSI_INTR_ERROR) {
 		MDSS_XLOG(ctrl->ndx, ctrl->mdp_busy, isr, 0x97);
-		pr_err("%s: ndx=%d isr=%x\n", __func__, ctrl->ndx, isr);
+		pr_debug("%s: ndx=%d isr=%x\n", __func__, ctrl->ndx, isr);
 		mdss_dsi_error(ctrl);
 	}
 

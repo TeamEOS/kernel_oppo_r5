@@ -144,8 +144,7 @@ obj-y += snd-soc-ak4375.o
 #2014-08-22 zhzhyon Add end
 
 #John.Xu add for ts4621 2014.10.24
-#hanqing.wang delete for 14061 open code 2014-12-19 
-#snd-soc-ts4621-objs := ts4621.o
+snd-soc-ts4621-objs := ts4621.o
 
 obj-$(CONFIG_SND_SOC_88PM860X)	+= snd-soc-88pm860x.o
 obj-$(CONFIG_SND_SOC_AB8500_CODEC)	+= snd-soc-ab8500-codec.o
@@ -280,5 +279,4 @@ obj-$(CONFIG_SND_SOC_MAX9877)	+= snd-soc-max9877.o
 obj-$(CONFIG_SND_SOC_TPA6130A2)	+= snd-soc-tpa6130a2.o
 
 #John.Xu add for ts4621 2014.10.24
-#hanqing.wang delete for 14061 open code 2014-12-19 
-#obj-$(CONFIG_SND_SOC_TS4621)	+= snd-soc-ts4621.o
+obj-$(CONFIG_SND_SOC_TS4621)	+= snd-soc-ts4621.o

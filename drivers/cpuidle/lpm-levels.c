@@ -42,6 +42,7 @@
 #include <asm/arch_timer.h>
 #include <asm/cacheflush.h>
 #include "lpm-levels.h"
+#include "lpm-workarounds.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_low_power.h>
@@ -310,7 +311,7 @@ static int cpu_power_select(struct cpuidle_device *dev,
 		if (best_level_pwr >= pwr) {
 			best_level = i;
 			best_level_pwr = pwr;
-			if (next_event_us < sleep_us &&
+			if (next_event_us && next_event_us < sleep_us &&
 				(mode != MSM_PM_SLEEP_MODE_WAIT_FOR_INTERRUPT))
 				modified_time_us
 					= next_event_us - lvl_latency_us;
@@ -438,8 +439,8 @@ static int cluster_configure(struct lpm_cluster *cluster, int idx,
 
 	spin_lock(&cluster->sync_lock);
 
-	if (!cpumask_equal(&cluster->num_childs_in_sync,
-					&cluster->child_cpus)) {
+	if (!cpumask_equal(&cluster->num_childs_in_sync, &cluster->child_cpus)
+			|| is_IPI_pending(&cluster->num_childs_in_sync)) {
 		spin_unlock(&cluster->sync_lock);
 		return -EPERM;
 	}
@@ -578,6 +579,13 @@ static void cluster_unprepare(struct lpm_cluster *cluster,
 	level = &cluster->levels[cluster->last_level];
 	if (level->notify_rpm) {
 		msm_rpm_exit_sleep();
+
+		/* If RPM bumps up CX to turbo, unvote CX turbo vote
+		 * during exit of rpm assisted power collapse to
+		 * reduce the power impact
+		 */
+
+		lpm_wa_cx_unvote_send();
 		msm_mpm_exit_sleep(from_idle);
 	}
 
@@ -652,7 +660,7 @@ static int lpm_cpuidle_enter(struct cpuidle_device *dev,
 	}
 
 	pwr_params = &cluster->cpu->levels[idx].pwr;
-	sched_set_cpu_cstate(smp_processor_id(), idx+1,
+	sched_set_cpu_cstate(smp_processor_id(), idx + 1,
 		pwr_params->energy_overhead, pwr_params->latency_us);
 
 	cpu_prepare(cluster, idx, true);

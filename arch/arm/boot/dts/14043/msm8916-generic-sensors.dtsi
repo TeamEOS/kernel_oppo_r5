@@ -1,5 +1,5 @@
 #include "msm8916.dtsi"
-#include "msm8916-qrd.dtsi"
+#include "msm8916-pinctrl.dtsi"
 
 &i2c_0 { /* BLSP1 QUP2 */
 	akm@c {
@@ -44,7 +44,24 @@
 		avago,als-D = <142>;
 		avago,ga-value = <105>;
 	};
-
+	kionix@1f { 
+		compatible = "kionix,kxtj9";
+		reg = <0x1f>;
+/*		interrupt-parent = <&msm_gpio>;
+		interrupts = <112 0x2>;*/
+		vdd-supply = <&pm8916_l17>;
+		vio-supply = <&pm8916_l6>;
+		kionix,min-interval = <5>;
+		kionix,init-interval = <200>;
+		kionix,axis-map-x = <0>;
+		kionix,axis-map-y = <1>;
+		kionix,axis-map-z = <2>;
+		kionix,g-range = <2>;
+		kionix,negate-x;
+		kionix,negate-y;
+	/*	kionix,negate-z;*/
+		kionix,res-12bit; 
+	};
 	st@19 {
 		compatible = "st,lis3dh";
 		reg = <0x19>;
@@ -65,24 +82,7 @@
 		st,negate-y;*/
 		st,negate-z;
 	};
-	kionix@f { 
-		compatible = "kionix,kxtj9";
-		reg = <0x0f>;
-		interrupt-parent = <&msm_gpio>;
-		interrupts = <112 0x2>;
-		vdd-supply = <&pm8916_l17>;
-		vio-supply = <&pm8916_l6>;
-		kionix,min-interval = <5>;
-		kionix,init-interval = <200>;
-		kionix,axis-map-x = <1>;
-		kionix,axis-map-y = <0>;
-		kionix,axis-map-z = <2>;
-		kionix,g-range = <2>;
-		kionix,negate-x;
-		kionix,negate-y;
-		kionix,negate-z;
-		kionix,res-12bit; 
-	};
+	
 	bosch@18 { /* Accelerometer sensor */
 		status="disable";
 		compatible = "bosch,bma2x2";

@@ -13,7 +13,7 @@
 *******************************************************************************/
 
 #define OPPO_ADC_PAR
-#include <oppo_inc.h>
+#include "oppo_inc.h"
 
 int opchg_get_prop_charger_voltage_now(struct opchg_charger *chip)
 {
@@ -70,7 +70,7 @@ int opchg_get_prop_low_battery_voltage(struct opchg_charger *chip)
 
 	switch (chip->driver_id) {
 	  case OPCHG_SMB358_ID:
-			if(is_project(OPPO_14043)){
+			if(is_project(OPPO_14043) || is_project(OPPO_15005)){
 				V_low_battery = 0;	
 			}
 			break;
@@ -84,30 +84,51 @@ int opchg_get_prop_low_battery_voltage(struct opchg_charger *chip)
 			V_low_battery = (int)mpp_uV/10000;	
 			break;
 	   case OPCHG_BQ24196_ID:
-	   		if(is_project(OPPO_14037) || is_project(OPPO_14051))
+	   		if(is_project(OPPO_14037) || is_project(OPPO_14051) || is_project(OPPO_15057))
 			{
 				return 0;
 			}
 			else
 			{
-				if(get_PCB_Version()== HW_VERSION__10)
+				rc = qpnp_vadc_read(chip->vadc_dev, P_MUX4_1_1, &results);
+				if (rc) {
+					pr_err("Unable to read vbattery rc=%d\n", rc);
+					return 0;
+				}
+				if(is_project(OPPO_14005)||is_project(OPPO_14023))
 				{
-					rc = qpnp_vadc_read(chip->vadc_dev, P_MUX4_1_1, &results);
-					if (rc) {
-						pr_err("Unable to read vbattery rc=%d\n", rc);
-						return 0;
+					if(get_PCB_Version()== HW_VERSION__10)
+					{
+						mpp_uV =results.physical*34;
+						V_low_battery = (int)mpp_uV/10000;
 					}
-					mpp_uV =results.physical*34;
-					V_low_battery = (int)mpp_uV/10000;
+					else
+					{
+						mpp_uV =results.physical*31;
+						V_low_battery = (int)mpp_uV/1000;
+					}
+				}
+				else if(is_project(OPPO_14045))	
+				{
+					if(get_PCB_Version()== HW_VERSION__10)
+					{
+						mpp_uV =results.physical*34;
+						V_low_battery = (int)mpp_uV/10000;
+					}
+					else
+					{
+						mpp_uV =results.physical*4;
+						V_low_battery = (int)mpp_uV/1000;
+					}
+				}
+				else if(is_project(OPPO_15011) || is_project(OPPO_15018))	
+				{
+					mpp_uV =results.physical*4;
+					V_low_battery = (int)mpp_uV/1000;
 				}
 				else
 				{
-					rc = qpnp_vadc_read(chip->vadc_dev, P_MUX4_1_1, &results);
-					if (rc) {
-						pr_err("Unable to read vbattery rc=%d\n", rc);
-						return 0;
-					}
-					mpp_uV =results.physical*31;
+					mpp_uV =results.physical*4;
 					V_low_battery = (int)mpp_uV/1000;
 				}
 			}
@@ -124,7 +145,8 @@ int opchg_get_prop_battery_voltage_now(struct opchg_charger *chip)
 	struct qpnp_vadc_result results;
 	int V_battery = 0;
 
-	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14051)){
+	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14051) 
+		|| is_project(OPPO_15005) || is_project(OPPO_15057)){
 		rc = qpnp_vadc_read(chip->vadc_dev, VBAT_SNS, &results);
 		if (rc) {
 			pr_err("Unable to read vbat rc=%d\n", rc);
@@ -132,7 +154,7 @@ int opchg_get_prop_battery_voltage_now(struct opchg_charger *chip)
 		}
 		V_battery =(int)results.physical;
 	} 
-	else if(is_project(14005) || is_project(14023)|| is_project(14045))
+	else if(is_project(OPPO_14005) || is_project(OPPO_14023)|| is_project(OPPO_14045)|| is_project(OPPO_15011)|| is_project(OPPO_15018))
 	{
 		if (qpnp_batt_gauge && qpnp_batt_gauge->get_battery_mvolts)
 			V_battery =qpnp_batt_gauge->get_battery_mvolts();
@@ -159,7 +181,8 @@ int opchg_get_prop_batt_temp(struct opchg_charger *chip)
 	struct qpnp_vadc_result results;
 	int T_battery = 0;
 
-	if(is_project(OPPO_14043) || is_project(OPPO_14037) ||is_project(OPPO_14051)){
+	if(is_project(OPPO_14043) || is_project(OPPO_14037) ||is_project(OPPO_14051) 
+		|| is_project(OPPO_15005) || is_project(OPPO_15057)){
 		rc = qpnp_vadc_read(chip->vadc_dev, LR_MUX1_BATT_THERM, &results);
 		if (rc) {
 			pr_err("Unable to read batt temperature rc=%d\n", rc);
@@ -167,7 +190,7 @@ int opchg_get_prop_batt_temp(struct opchg_charger *chip)
 		}
 		T_battery = (int)results.physical;
 	}
-	else if(is_project(14005) || is_project(14023)|| is_project(14045))
+	else if(is_project(OPPO_14005) || is_project(OPPO_14023)|| is_project(OPPO_14045)|| is_project(OPPO_15011)|| is_project(OPPO_15018))
 	{
 		if (qpnp_batt_gauge && qpnp_batt_gauge->get_battery_temperature) {
 			T_battery =qpnp_batt_gauge->get_battery_temperature();

@@ -172,8 +172,15 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_TEMP_STATU,
 	POWER_SUPPLY_PROP_USB_TYPE,
 	POWER_SUPPLY_PROP_BATTERY_REQUEST_POWEROFF,
-	POWER_SUPPLY_PROP_FAST_CHARGE_PROJECT,//wangjc add for fast charge project sign
+	POWER_SUPPLY_PROP_FAST_CHARGE_PROJECT,	//wangjc add for fast charge project sign
+	POWER_SUPPLY_PROP_BATTERY_FCC,			//dengnw add for battery fcc
+	POWER_SUPPLY_PROP_BATTERY_SOH,			//dengnw add for battery soh
+	POWER_SUPPLY_PROP_BATTERY_CC,			//dengnw add for battery soh
 	//#endif
+//#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015-02-13 add for otg_switch in 14043
+	POWER_SUPPLY_PROP_OTG_SWITCH,
+//#endif
 	/* Properties of type `const char *' */
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_MANUFACTURER,

@@ -36,6 +36,10 @@
 #include "msm8x16_wcd_registers.h"
 #include "msm8916-wcd-irq.h"
 #include "msm8x16-wcd.h"
+//John.Xu@PhoneSw.AudioDriver, 2015/01/08, Add for avoid system sleep when detecting
+#ifdef VENDOR_EDIT
+#include <linux/wakelock.h>
+#endif /* VENDOR_EDIT */
 
 #define WCD_MBHC_JACK_MASK (SND_JACK_HEADSET | SND_JACK_OC_HPHL | \
 			   SND_JACK_OC_HPHR | SND_JACK_LINEOUT | \
@@ -51,6 +55,12 @@
 #define WCD_FAKE_REMOVAL_MIN_PERIOD_MS 100
 
 static int det_extn_cable_en;
+//John.Xu@PhoneSw.AudioDriver, 2015/01/08, Add for avoid system sleep when detecting
+#ifdef VENDOR_EDIT
+static struct wake_lock headset_detect;
+static int headset_detect_inited = 0;
+#endif /* VENDOR_EDIT */
+
 module_param(det_extn_cable_en, int,
 		S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(det_extn_cable_en, "enable/disable extn cable detect");
@@ -333,8 +343,32 @@ static void wcd_mbhc_set_and_turnoff_hph_padac(struct wcd_mbhc *mbhc)
 	} else {
 		pr_debug("%s PA is off\n", __func__);
 	}
+	
+	/*xiang.fei@Multimedia, 2014/11/20, Add for no voice in calling*/
+	#ifndef VENDOR_EDIT
 	snd_soc_update_bits(codec, MSM8X16_WCD_A_ANALOG_RX_HPH_CNP_EN,
-			    0x30, 0x00);
+		    0x30, 0x00);
+	#else
+	if(is_project(OPPO_14037) || is_project(OPPO_14039) || is_project(OPPO_14040)\
+	|| is_project(OPPO_14051) || is_project(OPPO_15005) || is_project(OPPO_15057))
+	{
+	    pr_err("%s mbhc->mbhc_cfg->spk_pa_en_state=%d\n", __func__, mbhc->mbhc_cfg->spk_pa_en_state);
+	    if(mbhc->mbhc_cfg->spk_pa_en_state)
+	    {
+            snd_soc_update_bits(codec, MSM8X16_WCD_A_ANALOG_RX_HPH_CNP_EN, 0x10, 0x00);
+	    }
+	    else
+	    {
+            snd_soc_update_bits(codec, MSM8X16_WCD_A_ANALOG_RX_HPH_CNP_EN, 0x30, 0x00);
+	    }
+	}
+	else
+	{
+    	snd_soc_update_bits(codec, MSM8X16_WCD_A_ANALOG_RX_HPH_CNP_EN, 0x30, 0x00);
+    }
+    #endif
+    /*xiang.fei@Multimedia, 2014/11/20, Add end*/
+
 	usleep_range(wg_time * 1000, wg_time * 1000 + 50);
 }
 
@@ -1035,7 +1069,9 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 			pr_err("%s: cable is extension cable\n", __func__);
 			plug_type = MBHC_PLUG_TYPE_HIGH_HPH;
 			hph_count = hph_count + 1;
-			if((hph_count == 6) && (is_project(OPPO_14043)))
+			if((hph_count == 6) && ((is_project(OPPO_14043))\
+			    || (is_project(OPPO_14037))|| (is_project(OPPO_14039))\
+			    || (is_project(OPPO_14040))))
 			{
 				pr_err("%s:HPH will detected as headset\n",__func__);
 				plug_type = MBHC_PLUG_TYPE_HEADSET;
@@ -1477,6 +1513,11 @@ static irqreturn_t wcd_mbhc_mech_plug_detect_irq(int irq, void *data)
 {
 	int r = IRQ_HANDLED;
 	struct wcd_mbhc *mbhc = data;
+
+    #ifdef VENDOR_EDIT
+    //John.Xu@PhoneSw.AudioDriver, 2015/01/08, Add for avoid system sleep when detecting
+    wake_lock(&headset_detect);
+    #endif /* VENDOR_EDIT */
 	
 	/*xiang.fei@Multimedia, 2014/08/16, Add for headset*/
 	#ifdef VENDOR_EDIT
@@ -1499,7 +1540,11 @@ static irqreturn_t wcd_mbhc_mech_plug_detect_irq(int irq, void *data)
 	enable_irq(irq);
 	#endif
 	/*xiang.fei@Multimedia, 2014/08/16, Add end*/
-	
+    #ifdef VENDOR_EDIT
+    //John.Xu@PhoneSw.AudioDriver, 2015/01/08, Add for avoid system sleep when detecting
+    wake_unlock(&headset_detect);
+    #endif /* VENDOR_EDIT */
+
 	pr_debug("%s: leave %d\n", __func__, r);
 	return r;
 }
@@ -1954,6 +1999,14 @@ static int wcd_mbhc_initialise(struct wcd_mbhc *mbhc)
 	wcd9xxx_spmi_enable_irq(mbhc->intr_ids->mbhc_btn_release_intr);
 	wcd9xxx_spmi_enable_irq(mbhc->intr_ids->hph_left_ocp);
 	wcd9xxx_spmi_enable_irq(mbhc->intr_ids->hph_right_ocp);
+    #ifdef VENDOR_EDIT
+    if(!headset_detect_inited) {
+    //John.Xu@PhoneSw.AudioDriver, 2015/01/08, Add for avoid system sleep when detecting
+        headset_detect_inited = 1;
+        wake_lock_init(&headset_detect, WAKE_LOCK_SUSPEND,	"headset_detect");
+    }
+    #endif /* VENDOR_EDIT */
+	/*OPPO 2014-09-01 zhzhyon Add for avoid system sleep when detecting*/
 	pr_debug("%s: leave\n", __func__);
 	return ret;
 }

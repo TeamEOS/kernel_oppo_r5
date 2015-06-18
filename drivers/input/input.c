@@ -246,8 +246,13 @@ static int input_handle_abs_event(struct input_dev *dev,
 	if (pold) {
 		*pval = input_defuzz_abs_event(*pval, *pold,
 						dev->absinfo[code].fuzz);
+#ifdef VENDOR_EDIT /* LiuPing@Phone.BSP.Sensor, 2015/01/21, add for exception in light-sensor as input system ignore the event of same value. */
+		if (*pold == *pval && !(code == ABS_MISC && strcmp(dev->name, "light") == 0) )
+			return INPUT_IGNORE_EVENT;
+#else
 		if (*pold == *pval)
 			return INPUT_IGNORE_EVENT;
+#endif /*VENDOR_EDIT*/
 
 		*pold = *pval;
 	}
@@ -693,6 +698,16 @@ static void input_dev_release_keys(struct input_dev *dev)
 			}
 			else
 			{
+				//#ifdef VENDOR_EDIT
+				//Jason.Lee@PhoneSW.BSP.MotionTDT, 2014/12/05, Add for oppo_shake by ranfei
+				//do not report up when resume
+				#ifdef VENDOR_EDIT
+				if(code == KEY_VOLUMEDOWN || code == KEY_VOLUMEUP) {
+					continue;
+				}
+				#endif
+				// #endif /* VENDOR_EDIT */
+
 				if (is_event_supported(code, dev->keybit, KEY_MAX) &&
 				    __test_and_clear_bit(code, dev->key)) {
 					  input_pass_event(dev, EV_KEY, code, 0);

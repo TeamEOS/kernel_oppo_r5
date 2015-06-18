@@ -99,6 +99,19 @@ static bool floated_charger_enable;
 #else
 static bool floated_charger_enable = 1;
 #endif
+#ifdef VENDOR_EDIT
+/*chaoying.chen@EXP.BaseDrv.otg,2014/12/22  Added for 14061 otg */
+enum {
+VOOC_CHARGER_MODE,
+HEADPHONE_MODE,
+NORMAL_CHARGER_MODE,
+};
+extern int opchg_set_switch_mode(u8 mode);
+extern void opchg_check_earphone_off(void);
+atomic_t otg_id_state = ATOMIC_INIT(1);
+atomic_t headset_status = ATOMIC_INIT(0);
+atomic_t oppo_otg_state= ATOMIC_INIT(0);
+#endif
 module_param(floated_charger_enable , bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(floated_charger_enable,
 	"Whether to enable floated charger");
@@ -132,6 +145,18 @@ static u32 bus_freqs[USB_NUM_BUS_CLOCKS];	/* bimc, snoc, pcnoc clk */;
 static char bus_clkname[USB_NUM_BUS_CLOCKS][20] = {"bimc_clk", "snoc_clk",
 						"pcnoc_clk"};
 static bool bus_clk_rate_set;
+
+#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015-02-13 add for otg_switch for 14043
+static inline int oppo_test_id(struct msm_otg *motg)
+{
+	if(is_project(OPPO_14043) && (motg->otg_switch == false)){
+		return 1;
+	} else {
+		return test_bit(ID, &motg->inputs);
+	}
+}
+#endif
 
 static int msm_hsusb_ldo_init(struct msm_otg *motg, int init)
 {
@@ -684,7 +709,11 @@ static enum hrtimer_restart msm_otg_timer_func(struct hrtimer *hrtimer)
 	}
 
 	pr_debug("expired %s timer\n", timer_string(motg->active_tmout));
+	#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 	queue_work(system_nrt_wq, &motg->sm_work);
+	#else
+	queue_work(motg->otg_wq, &motg->sm_work);
+	#endif
 	return HRTIMER_NORESTART;
 }
 
@@ -727,7 +756,11 @@ static int msm_otg_start_hnp(struct usb_otg *otg)
 
 	pr_debug("A-Host: HNP initiated\n");
 	clear_bit(A_BUS_REQ, &motg->inputs);
+	#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 	queue_work(system_nrt_wq, &motg->sm_work);
+	#else	
+	queue_work(motg->otg_wq, &motg->sm_work);
+	#endif
 	return 0;
 }
 
@@ -790,6 +823,9 @@ static void msm_otg_host_hnp_enable(struct usb_otg *otg, bool enable)
 	}
 }
 
+#ifdef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+#define HOST_SUSPEND_WQ_TIMEOUT_MS  msecs_to_jiffies(2000) /* 2 seconds */
+#endif
 static int msm_otg_set_suspend(struct usb_phy *phy, int suspend)
 {
 	struct msm_otg *motg = container_of(phy, struct msm_otg, phy);
@@ -815,14 +851,32 @@ static int msm_otg_set_suspend(struct usb_phy *phy, int suspend)
 		case OTG_STATE_A_HOST:
 			pr_debug("host bus suspend\n");
 			clear_bit(A_BUS_REQ, &motg->inputs);
+			#if 0//def VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+			mutex_lock(motg->inputbits_mutex);
+			#endif
 			if (!atomic_read(&motg->in_lpm) &&
-					!test_bit(ID, &motg->inputs)) {
-				queue_work(system_nrt_wq, &motg->sm_work);
+					!oppo_test_id(motg)) {
+				#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+					queue_work(system_nrt_wq, &motg->sm_work);
+					#else	
+					queue_work(motg->otg_wq, &motg->sm_work);
+					#endif
+
+				#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 				/* Flush sm_work to avoid it race with
 				 * subsequent calls of set_suspend.
 				 */
 				flush_work(&motg->sm_work);
+				#else
+				wait_event_interruptible_timeout(
+					motg->host_suspend_wait,
+					(atomic_read(&motg->in_lpm)|| oppo_test_id(motg)),
+					HOST_SUSPEND_WQ_TIMEOUT_MS);
+				#endif
 			}
+			#if 0//def VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+			mutex_unlock(motg->inputbits_mutex);
+			#endif
 			break;
 		case OTG_STATE_B_PERIPHERAL:
 			pr_debug("peripheral bus suspend\n");
@@ -830,7 +884,11 @@ static int msm_otg_set_suspend(struct usb_phy *phy, int suspend)
 				break;
 			set_bit(A_BUS_SUSPEND, &motg->inputs);
 			if (!atomic_read(&motg->in_lpm))
+				#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 				queue_delayed_work(system_nrt_wq,
+				#else	
+				queue_delayed_work(motg->otg_wq,				
+				#endif
 					&motg->suspend_work,
 					USB_SUSPEND_DELAY_TIME);
 			break;
@@ -862,7 +920,11 @@ static int msm_otg_set_suspend(struct usb_phy *phy, int suspend)
 				break;
 			clear_bit(A_BUS_SUSPEND, &motg->inputs);
 			if (atomic_read(&motg->in_lpm))
+				#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 				queue_work(system_nrt_wq, &motg->sm_work);
+				#else
+				queue_work(motg->otg_wq, &motg->sm_work);
+				#endif
 			break;
 		default:
 			break;
@@ -1003,8 +1065,8 @@ phcd_retry:
 	motg->ui_enabled = 0;
 	disable_irq(motg->irq);
 	host_bus_suspend = !test_bit(MHL, &motg->inputs) && phy->otg->host &&
-		!test_bit(ID, &motg->inputs);
-	device_bus_suspend = phy->otg->gadget && test_bit(ID, &motg->inputs) &&
+		!oppo_test_id(motg);
+	device_bus_suspend = phy->otg->gadget && oppo_test_id(motg) &&
 		test_bit(A_BUS_SUSPEND, &motg->inputs) &&
 		motg->caps & ALLOW_LPM_ON_DEV_SUSPEND;
 	dcp = motg->chg_type == USB_DCP_CHARGER;
@@ -1239,6 +1301,9 @@ phcd_retry:
 	motg->host_bus_suspend = host_bus_suspend;
 	motg->device_bus_suspend = device_bus_suspend;
 	atomic_set(&motg->in_lpm, 1);
+	#ifdef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	wake_up(&motg->host_suspend_wait);
+	#endif
 	/* Enable ASYNC IRQ (if present) during LPM */
 	if (motg->async_irq)
 		enable_irq(motg->async_irq);
@@ -1343,7 +1408,7 @@ static int msm_otg_resume(struct msm_otg *motg)
 
 	in_device_mode =
 		phy->otg->gadget &&
-		test_bit(ID, &motg->inputs);
+		oppo_test_id(motg);
 
 	bus_is_suspended =
 		readl_relaxed(USB_PORTSC) & PORTSC_SUSP_MASK;
@@ -1639,6 +1704,9 @@ static void msm_otg_start_host(struct usb_otg *otg, int on)
 	} else {
 		dev_dbg(otg->phy->dev, "host off\n");
 
+		#ifdef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+		wake_up(&motg->host_suspend_wait);
+		#endif
 		usb_remove_hcd(hcd);
 		/* HCD core reset all bits of PORTSC. select ULPI phy */
 		writel_relaxed(0x80000000, USB_PORTSC);
@@ -1711,7 +1779,11 @@ static int msm_otg_usbdev_notify(struct notifier_block *self,
 				udev->bus->otg_vbus_off = 0;
 				set_bit(A_BUS_DROP, &motg->inputs);
 			}
+			#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 			queue_work(system_nrt_wq, &motg->sm_work);
+			#else
+			queue_work(motg->otg_wq, &motg->sm_work);
+			#endif
 		}
 	default:
 		break;
@@ -1752,6 +1824,10 @@ static void msm_hsusb_vbus_power(struct msm_otg *motg, bool on)
 	if (on) {
 		msm_otg_notify_host_mode(motg, on);
 		ret = regulator_enable(vbus_otg);
+		#ifdef VENDOR_EDIT/*dengnw@bsp.drv  for OTG delay  20141226*/
+		pr_err("oppo_otg able to enable vbus_otg\n");
+		msleep(250);
+		#endif
 		if (ret) {
 			pr_err("unable to enable vbus_otg\n");
 			return;
@@ -1759,10 +1835,18 @@ static void msm_hsusb_vbus_power(struct msm_otg *motg, bool on)
 		vbus_is_on = true;
 	} else {
 		ret = regulator_disable(vbus_otg);
+		#ifdef VENDOR_EDIT/*dengnw@bsp.drv  for OTG delay  20141226*/
+		if (ret) {
+			msleep(10);
+			ret = regulator_disable(vbus_otg);
+			msleep(5);
+		}
+		#endif
 		if (ret) {
 			pr_err("unable to disable vbus_otg\n");
 			return;
 		}
+		pr_err("oppo_otg able to disable vbus_otg\n");
 		msm_otg_notify_host_mode(motg, on);
 		vbus_is_on = false;
 	}
@@ -1798,7 +1882,11 @@ static int msm_otg_set_host(struct usb_otg *otg, struct usb_bus *host)
 			msm_hsusb_vbus_power(motg, 0);
 			otg->host = NULL;
 			otg->phy->state = OTG_STATE_UNDEFINED;
+			#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 			queue_work(system_nrt_wq, &motg->sm_work);
+			#else
+			queue_work(motg->otg_wq, &motg->sm_work);
+			#endif
 		} else {
 			otg->host = NULL;
 		}
@@ -1823,7 +1911,11 @@ static int msm_otg_set_host(struct usb_otg *otg, struct usb_bus *host)
 	 */
 	if (motg->pdata->mode == USB_HOST || otg->gadget) {
 		pm_runtime_get_sync(otg->phy->dev);
+		#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 		queue_work(system_nrt_wq, &motg->sm_work);
+		#else
+		queue_work(motg->otg_wq, &motg->sm_work);
+		#endif
 	}
 
 	return 0;
@@ -1915,7 +2007,11 @@ static int msm_otg_set_peripheral(struct usb_otg *otg,
 			msm_otg_start_peripheral(otg, 0);
 			otg->gadget = NULL;
 			otg->phy->state = OTG_STATE_UNDEFINED;
+			#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 			queue_work(system_nrt_wq, &motg->sm_work);
+			#else
+			queue_work(motg->otg_wq, &motg->sm_work);
+			#endif			 
 		} else {
 			otg->gadget = NULL;
 		}
@@ -1931,7 +2027,11 @@ static int msm_otg_set_peripheral(struct usb_otg *otg,
 	 */
 	if (motg->pdata->mode == USB_PERIPHERAL || otg->host) {
 		pm_runtime_get_sync(otg->phy->dev);
+		#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 		queue_work(system_nrt_wq, &motg->sm_work);
+		#else
+		queue_work(motg->otg_wq, &motg->sm_work);
+		#endif
 	}
 
 	return 0;
@@ -2071,7 +2171,11 @@ static void msm_otg_chg_check_timer_func(unsigned long data)
 	if ((readl_relaxed(USB_PORTSC) & PORTSC_LS) == PORTSC_LS) {
 		dev_dbg(otg->phy->dev, "DCP is detected as SDP\n");
 		set_bit(B_FALSE_SDP, &motg->inputs);
+		#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 		queue_work(system_nrt_wq, &motg->sm_work);
+		#else
+		queue_work(motg->otg_wq, &motg->sm_work);
+		#endif
 	}
 }
 
@@ -2245,11 +2349,15 @@ static void msm_otg_id_timer_func(unsigned long data)
 
 	if (msm_chg_check_aca_intr(motg)) {
 		dev_dbg(motg->phy.dev, "timer: aca work\n");
+		#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 		queue_work(system_nrt_wq, &motg->sm_work);
+		#else
+		queue_work(motg->otg_wq, &motg->sm_work);
+		#endif
 	}
 
 out:
-	if (!test_bit(ID, &motg->inputs) || test_bit(ID_A, &motg->inputs))
+	if (!oppo_test_id(motg) || test_bit(ID_A, &motg->inputs))
 		mod_timer(&motg->id_timer, ID_TIMER_FREQ);
 }
 
@@ -2528,6 +2636,10 @@ static void msm_chg_detect_work(struct work_struct *w)
 		dev_dbg(phy->dev, "detected MHL, escape chg detection work\n");
 		return;
 	}
+	#ifdef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+    /* resume the device first if at all it resumes */
+	pm_runtime_resume(phy->dev);
+	#endif
 
 	switch (motg->chg_state) {
 	case USB_CHG_STATE_UNDEFINED:
@@ -2543,7 +2655,11 @@ static void msm_chg_detect_work(struct work_struct *w)
 			msm_chg_block_off(motg);
 			motg->chg_state = USB_CHG_STATE_DETECTED;
 			motg->chg_type = USB_INVALID_CHARGER;
+			#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 			queue_work(system_nrt_wq, &motg->sm_work);
+			#else
+			queue_work(motg->otg_wq, &motg->sm_work);
+			#endif
 			return;
 		}
 		is_aca = msm_chg_aca_detect(motg);
@@ -2642,13 +2758,22 @@ static void msm_chg_detect_work(struct work_struct *w)
 		msm_chg_enable_aca_intr(motg);
 		dev_err(phy->dev, "chg_type = %s\n",
 			chg_to_string(motg->chg_type));
+		#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 		queue_work(system_nrt_wq, &motg->sm_work);
+		#else
+		queue_work(motg->otg_wq, &motg->sm_work);
+		#endif
 		return;
 	default:
 		return;
 	}
 
+	#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 	queue_delayed_work(system_nrt_wq, &motg->chg_work, delay);
+	#else
+	queue_delayed_work(motg->otg_wq, &motg->chg_work, delay);
+	#endif
+
 }
 
 #define VBUS_INIT_TIMEOUT	msecs_to_jiffies(5000)
@@ -2691,6 +2816,28 @@ static void msm_otg_init_sm(struct msm_otg *motg)
 				clear_bit(B_SESS_VLD, &motg->inputs);
 		} else if (pdata->otg_control == OTG_PMIC_CONTROL) {
 
+#ifdef VENDOR_EDIT
+ /*chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Modified for 14061 otg */
+		      if(is_project(OPPO_14005) && (get_Operator_Version() >= 5))
+		      {
+			       if (atomic_read(&otg_id_state))
+					    set_bit(ID, &motg->inputs);
+			       else
+					    clear_bit(ID, &motg->inputs);
+		      } else {
+			       if (pdata->pmic_id_irq) {
+				       if (msm_otg_read_pmic_id_state(motg))
+					      set_bit(ID, &motg->inputs);
+				       else
+					      clear_bit(ID, &motg->inputs);
+			       } else if (motg->ext_id_irq) {
+				       if (gpio_get_value(pdata->usb_id_gpio))
+					      set_bit(ID, &motg->inputs);
+				       else
+					      clear_bit(ID, &motg->inputs);
+			       }
+			  }
+#else /*VENDOR_EDIT*/
             if (pdata->pmic_id_irq) {
 				if (msm_otg_read_pmic_id_state(motg))
 					set_bit(ID, &motg->inputs);
@@ -2702,7 +2849,7 @@ static void msm_otg_init_sm(struct msm_otg *motg)
 				else
 					clear_bit(ID, &motg->inputs);
 			}
-
+#endif /*VENDOR_EDIT*/
 			/*
 			 * VBUS initial state is reported after PMIC
 			 * driver initialization. Wait for it.
@@ -2791,6 +2938,10 @@ static void msm_otg_sm_work(struct work_struct *w)
 	struct usb_otg *otg = motg->phy.otg;
 	bool work = 0, srp_reqd, dcp;
 
+    #ifdef VENDOR_EDIT
+    /*chaoying.chen@EXP.BaseDrv.otg,2014/12/22  Added for 14061 otg */
+    static int oppo_otg_check_count = 0;
+    #endif /*VENDOR_EDIT*/
 	pm_runtime_resume(otg->phy->dev);
 	if (motg->pm_done) {
 		pm_runtime_get_sync(otg->phy->dev);
@@ -2810,7 +2961,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 
 		otg->phy->state = OTG_STATE_B_IDLE;
 		if (!test_bit(B_SESS_VLD, &motg->inputs) &&
-				test_bit(ID, &motg->inputs)) {
+				oppo_test_id(motg)) {
 			pm_runtime_put_noidle(otg->phy->dev);
 			pm_runtime_suspend(otg->phy->dev);
 			break;
@@ -2821,7 +2972,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			/* allow LPM */
 			pm_runtime_put_noidle(otg->phy->dev);
 			pm_runtime_suspend(otg->phy->dev);
-		} else if ((!test_bit(ID, &motg->inputs) ||
+		} else if ((!oppo_test_id(motg) ||
 				test_bit(ID_A, &motg->inputs)) && otg->host) {
 			pr_debug("!id || id_A\n");
 			if (msm_chg_mhl_detect(motg)) {
@@ -2866,7 +3017,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 					msm_otg_notify_charger(motg,
 							IDEV_CHG_MAX);
 					#else
-					if(is_project(14005)|| is_project(14023))
+					if(is_project(OPPO_14005)|| is_project(OPPO_14023)|| is_project(OPPO_15011)|| is_project(OPPO_15018))
 					{
 						msm_otg_notify_charger(motg,
 								IDEV_CHG_MAX);
@@ -2966,7 +3117,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 		}
 		break;
 	case OTG_STATE_B_SRP_INIT:
-		if (!test_bit(ID, &motg->inputs) ||
+		if (!oppo_test_id(motg) ||
 				test_bit(ID_A, &motg->inputs) ||
 				test_bit(ID_C, &motg->inputs) ||
 				(test_bit(B_SESS_VLD, &motg->inputs) &&
@@ -3001,7 +3152,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			clear_bit(B_FALSE_SDP, &motg->inputs);
 			otg->phy->state = OTG_STATE_B_IDLE;
 			work = 1;
-		} else if (!test_bit(ID, &motg->inputs) ||
+		} else if (!oppo_test_id(motg) ||
 				test_bit(ID_A, &motg->inputs) ||
 				test_bit(ID_B, &motg->inputs) ||
 				!test_bit(B_SESS_VLD, &motg->inputs)) {
@@ -3051,7 +3202,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 		}
 		break;
 	case OTG_STATE_B_WAIT_ACON:
-		if (!test_bit(ID, &motg->inputs) ||
+		if (!oppo_test_id(motg) ||
 				test_bit(ID_A, &motg->inputs) ||
 				test_bit(ID_B, &motg->inputs) ||
 				!test_bit(B_SESS_VLD, &motg->inputs)) {
@@ -3117,7 +3268,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 		break;
 	case OTG_STATE_A_IDLE:
 		otg->default_a = 1;
-		if (test_bit(ID, &motg->inputs) &&
+		if (oppo_test_id(motg) &&
 			!test_bit(ID_A, &motg->inputs)) {
 			pr_debug("id && !id_a\n");
 			otg->default_a = 0;
@@ -3156,7 +3307,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			if (test_bit(ID_A, &motg->inputs)) {
 					msm_otg_notify_charger(motg,
 							IDEV_ACA_CHG_MAX);
-			} else if (!test_bit(ID, &motg->inputs)) {
+			} else if (!oppo_test_id(motg)) {
 				msm_otg_notify_charger(motg, 0);
 				/*
 				 * A-device is not providing power on VBUS.
@@ -3171,7 +3322,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 		}
 		break;
 	case OTG_STATE_A_WAIT_VRISE:
-		if ((test_bit(ID, &motg->inputs) &&
+		if ((oppo_test_id(motg) &&
 				!test_bit(ID_A, &motg->inputs)) ||
 				test_bit(A_BUS_DROP, &motg->inputs) ||
 				test_bit(A_WAIT_VRISE, &motg->tmouts)) {
@@ -3199,7 +3350,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 		}
 		break;
 	case OTG_STATE_A_WAIT_BCON:
-		if ((test_bit(ID, &motg->inputs) &&
+		if ((oppo_test_id(motg) &&
 				!test_bit(ID_A, &motg->inputs)) ||
 				test_bit(A_BUS_DROP, &motg->inputs) ||
 				test_bit(A_WAIT_BCON, &motg->tmouts)) {
@@ -3220,7 +3371,21 @@ static void msm_otg_sm_work(struct work_struct *w)
 			if (test_bit(ID_A, &motg->inputs))
 				msm_otg_notify_charger(motg, IDEV_CHG_MIN);
 			else
-				msm_hsusb_vbus_power(motg, 0);
+                     #ifndef VENDOR_EDIT
+                      /*chaoying.chen@EXP.BaseDrv.otg,2014/12/22  Added for 14061 otg */
+                     msm_hsusb_vbus_power(motg, 0);
+                     #else /*VENDOR_EDIT*/
+                     {
+				        msm_hsusb_vbus_power(motg, 0);
+                        if(is_project(OPPO_14005) && (get_Operator_Version() >= 5)){
+	                      pr_err("[%s]set oppo_otg_state to 0\n",__func__);
+	                      atomic_set(&oppo_otg_state,0);
+                          oppo_otg_check_count = 0;
+                          if(atomic_read(&headset_status)== 1)
+	                         oppo_headset_detect_plug(1);
+                        }
+                     }
+                     #endif /*VENDOR_EDIT*/
 			otg->phy->state = OTG_STATE_A_WAIT_VFALL;
 			msm_otg_start_timer(motg, TA_WAIT_VFALL, A_WAIT_VFALL);
 		} else if (!test_bit(A_VBUS_VLD, &motg->inputs)) {
@@ -3237,14 +3402,40 @@ static void msm_otg_sm_work(struct work_struct *w)
 			 * If TA_WAIT_BCON is infinite, we don;t
 			 * turn off VBUS. Enter low power mode.
 			 */
-			if (TA_WAIT_BCON < 0)
-				pm_runtime_put_sync(otg->phy->dev);
-		} else if (!test_bit(ID, &motg->inputs)) {
+
+             #ifdef VENDOR_EDIT
+              /*chaoying.chen@EXP.BaseDrv.otg,2014/12/22  Added for 14061 otg */
+               if(is_project(OPPO_14005) && (get_Operator_Version() >= 5)){
+                   pr_err("[%s]oppo_otg_state=%d oppo_otg_check_count=%d\n",__func__,atomic_read(&oppo_otg_state),oppo_otg_check_count );
+                   if((atomic_read(&oppo_otg_state) == 0)&&(!oppo_test_id(motg))) {
+	                   oppo_otg_check_count++;
+	                   if(oppo_otg_check_count >= 30){
+		                   pr_err("[%s]oppo_otg_check_count >= 30\n",__func__);
+		                   set_bit(ID, &motg->inputs);
+		                   atomic_set(&otg_id_state,1);
+		                   atomic_set(&headset_status,1);
+		                   oppo_otg_check_count = 0;
+	                   }
+                       work = 1;
+                   }
+                   else {
+                          if (TA_WAIT_BCON < 0)
+				                   pm_runtime_put_sync(otg->phy->dev);
+                    }
+              } else {
+                   if (TA_WAIT_BCON < 0)
+				                   pm_runtime_put_sync(otg->phy->dev);
+                }
+            #else  /*VENDOR_EDIT*/
+                if (TA_WAIT_BCON < 0)
+				                   pm_runtime_put_sync(otg->phy->dev);
+            #endif /*VENDOR_EDIT*/
+		} else if (!oppo_test_id(motg)) {
 			msm_hsusb_vbus_power(motg, 1);
 		}
 		break;
 	case OTG_STATE_A_HOST:
-		if ((test_bit(ID, &motg->inputs) &&
+		if ((oppo_test_id(motg) &&
 				!test_bit(ID_A, &motg->inputs)) ||
 				test_bit(A_BUS_DROP, &motg->inputs)) {
 			pr_debug("id_a/b/c || a_bus_drop\n");
@@ -3278,6 +3469,13 @@ static void msm_otg_sm_work(struct work_struct *w)
 				pm_runtime_put_sync(otg->phy->dev);
 		} else if (!test_bit(B_CONN, &motg->inputs)) {
 			pr_debug("!b_conn\n");
+             #ifdef VENDOR_EDIT
+             /*chaoying.chen@EXP.BaseDrv.otg,2014/12/22  Added for 14061 otg */
+              if(is_project(OPPO_14005) && (get_Operator_Version() >= 5)){
+                  atomic_set(&oppo_otg_state,1);
+                  pr_err("[%s]set oppo_otg_state to 1 \n",__func__);
+              }
+             #endif /*VENDOR_EDIT*/
 			msm_otg_del_timer(motg);
 			otg->phy->state = OTG_STATE_A_WAIT_BCON;
 			if (TA_WAIT_BCON > 0)
@@ -3294,7 +3492,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			else
 				msm_otg_notify_charger(motg,
 						IDEV_CHG_MIN - motg->mA_port);
-		} else if (!test_bit(ID, &motg->inputs)) {
+		} else if (!oppo_test_id(motg)) {
 			motg->chg_state = USB_CHG_STATE_UNDEFINED;
 			motg->chg_type = USB_INVALID_CHARGER;
 			msm_otg_notify_charger(motg, 0);
@@ -3302,7 +3500,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 		}
 		break;
 	case OTG_STATE_A_SUSPEND:
-		if ((test_bit(ID, &motg->inputs) &&
+		if ((oppo_test_id(motg) &&
 				!test_bit(ID_A, &motg->inputs)) ||
 				test_bit(A_BUS_DROP, &motg->inputs) ||
 				test_bit(A_AIDL_BDIS, &motg->tmouts)) {
@@ -3345,13 +3543,13 @@ static void msm_otg_sm_work(struct work_struct *w)
 			msm_hsusb_vbus_power(motg, 0);
 			msm_otg_notify_charger(motg,
 					IDEV_CHG_MIN - motg->mA_port);
-		} else if (!test_bit(ID, &motg->inputs)) {
+		} else if (!oppo_test_id(motg)) {
 			msm_otg_notify_charger(motg, 0);
 			msm_hsusb_vbus_power(motg, 1);
 		}
 		break;
 	case OTG_STATE_A_PERIPHERAL:
-		if ((test_bit(ID, &motg->inputs) &&
+		if ((oppo_test_id(motg) &&
 				!test_bit(ID_A, &motg->inputs)) ||
 				test_bit(A_BUS_DROP, &motg->inputs)) {
 			pr_debug("id _f/b/c || a_bus_drop\n");
@@ -3387,7 +3585,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			msm_hsusb_vbus_power(motg, 0);
 			msm_otg_notify_charger(motg,
 					IDEV_CHG_MIN - motg->mA_port);
-		} else if (!test_bit(ID, &motg->inputs)) {
+		} else if (!oppo_test_id(motg)) {
 			msm_otg_notify_charger(motg, 0);
 			msm_hsusb_vbus_power(motg, 1);
 		}
@@ -3400,7 +3598,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 		}
 		break;
 	case OTG_STATE_A_VBUS_ERR:
-		if ((test_bit(ID, &motg->inputs) &&
+		if ((oppo_test_id(motg) &&
 				!test_bit(ID_A, &motg->inputs)) ||
 				test_bit(A_BUS_DROP, &motg->inputs) ||
 				test_bit(A_CLR_ERR, &motg->inputs)) {
@@ -3417,7 +3615,11 @@ static void msm_otg_sm_work(struct work_struct *w)
 		break;
 	}
 	if (work)
+		#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 		queue_work(system_nrt_wq, &motg->sm_work);
+		#else
+		queue_work(motg->otg_wq, &motg->sm_work);
+		#endif
 }
 
 static void msm_otg_suspend_work(struct work_struct *w)
@@ -3585,7 +3787,11 @@ static irqreturn_t msm_otg_irq(int irq, void *data)
 		ret = IRQ_HANDLED;
 	}
 	if (work)
+		#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 		queue_work(system_nrt_wq, &motg->sm_work);
+		#else
+		queue_work(motg->otg_wq, &motg->sm_work);
+		#endif
 
 	return ret;
 }
@@ -3606,7 +3812,7 @@ static void msm_otg_set_vbus_state(int online)
 	}
 
 	/* do not queue state m/c work if id is grounded */
-	if (!test_bit(ID, &motg->inputs)) {
+	if (!oppo_test_id(motg)) {
 		/*
 		 * state machine work waits for initial VBUS
 		 * completion in UNDEFINED state.  Process
@@ -3639,7 +3845,11 @@ out:
 		motg->sm_work_pending = true;
 	} else if (!motg->sm_work_pending) {
 		/* process event only if previous one is not pending */
+		#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 		queue_work(system_nrt_wq, &motg->sm_work);
+		#else
+		queue_work(motg->otg_wq, &motg->sm_work);
+		#endif
 	}
 }
 
@@ -3657,6 +3867,9 @@ static void msm_id_status_w(struct work_struct *w)
 	else if (motg->ext_id_irq)
 		id_state = gpio_get_value(motg->pdata->usb_id_gpio);
 
+	#if 0//def VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	mutex_lock(motg->inputbits_mutex);
+	#endif
 	if (id_state) {
 		if (!test_and_set_bit(ID, &motg->inputs)) {
 			pr_debug("ID set\n");
@@ -3669,22 +3882,69 @@ static void msm_id_status_w(struct work_struct *w)
 			work = 1;
 		}
 	}
+	#if 0//def VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	mutex_unlock(motg->inputbits_mutex);
+	#endif
 
 	if (work && (motg->phy.state != OTG_STATE_UNDEFINED)) {
 		if (atomic_read(&motg->pm_suspended)) {
 			motg->sm_work_pending = true;
 		} else if (!motg->sm_work_pending) {
 			/* process event only if previous one is not pending */
+			#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 			queue_work(system_nrt_wq, &motg->sm_work);
+			#else
+			queue_work(motg->otg_wq, &motg->sm_work);
+			#endif
 		}
 	}
 
 }
 
+#ifdef VENDOR_EDIT
+/*chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Added for 14061 otg */
+ void oppo_otg_id_status(int id_state)
+{
+	struct msm_otg *motg = the_msm_otg;
+	int work = 0;
+
+	if (id_state) {
+		if (!test_and_set_bit(ID, &motg->inputs)) {
+			pr_err("[%s]========ID set========\n",__func__);
+            atomic_set(&oppo_otg_state,0);
+			work = 1;
+		}
+	} else {
+		if (test_and_clear_bit(ID, &motg->inputs)) {
+			pr_err("[%s]========ID clear========\n",__func__);
+			set_bit(A_BUS_REQ, &motg->inputs);
+			work = 1;
+		}
+	}
+
+	if (work && (motg->phy.state != OTG_STATE_UNDEFINED)) {
+		if (atomic_read(&motg->pm_suspended)) {
+			motg->sm_work_pending = true;
+		} else if (!motg->sm_work_pending) {
+			/* process event only if previous one is not pending */
+			queue_work(the_msm_otg->otg_wq, &motg->sm_work);
+		}
+	}
+}
+#endif /*VENDOR_EDIT*/
 #define MSM_ID_STATUS_DELAY	5 /* 5msec */
 static irqreturn_t msm_id_irq(int irq, void *data)
 {
 	struct msm_otg *motg = data;
+	
+#ifdef VENDOR_EDIT	//Fuchun.Liao@Mobile.BSP.CHG 2015-02-12 add for otg switch
+	if(is_project(OPPO_14043)){
+		if(motg->otg_switch == false){
+			pr_err("%s otg_switch false,return\n",__func__);
+			return IRQ_HANDLED;
+		}
+	}
+#endif
 
 	if (test_bit(MHL, &motg->inputs) ||
 			mhl_det_in_progress) {
@@ -3694,9 +3954,13 @@ static irqreturn_t msm_id_irq(int irq, void *data)
 
 	if (!aca_id_turned_on)
 		/*schedule delayed work for 5msec for ID line state to settle*/
+	#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 		queue_delayed_work(system_nrt_wq, &motg->id_status_work,
 				msecs_to_jiffies(MSM_ID_STATUS_DELAY));
-
+	#else
+	 	queue_delayed_work(motg->otg_wq, &motg->id_status_work,  
+			msecs_to_jiffies(MSM_ID_STATUS_DELAY));
+	#endif
 	return IRQ_HANDLED;
 }
 
@@ -3717,7 +3981,11 @@ int msm_otg_pm_notify(struct notifier_block *notify_block,
 		/* Handle any deferred wakeup events from USB during suspend */
 		if (motg->sm_work_pending) {
 			motg->sm_work_pending = false;
+			#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 			queue_work(system_nrt_wq, &motg->sm_work);
+			#else
+			queue_work(motg->otg_wq, &motg->sm_work);
+			#endif
 		}
 		break;
 
@@ -3819,7 +4087,11 @@ static ssize_t msm_otg_mode_write(struct file *file, const char __user *ubuf,
 	}
 
 	pm_runtime_resume(phy->dev);
+	#ifndef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
 	queue_work(system_nrt_wq, &motg->sm_work);
+	#else
+	queue_work(motg->otg_wq, &motg->sm_work);
+	#endif
 out:
 	return status;
 }
@@ -4007,6 +4279,14 @@ static int otg_power_get_property_usb(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		val->intval = otg_get_prop_usbin_voltage_now(motg);
 		break;
+	case POWER_SUPPLY_PROP_OTG_SWITCH:
+		if(is_project(OPPO_14043)){
+			val->intval = motg->otg_switch;
+			pr_err("%s otg_switch:%d\n",__func__,motg->otg_switch);
+		} else {
+			val->intval = 1;
+		}
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -4040,6 +4320,21 @@ static int otg_power_set_property_usb(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_HEALTH:
 		motg->usbin_health = val->intval;
 		break;
+	case POWER_SUPPLY_PROP_OTG_SWITCH:
+		if(is_project(OPPO_14043)){
+			motg->otg_switch = val->intval;
+			if(motg->otg_switch == true){		//otg enabled
+				gpio_direction_input(motg->pdata->usb_id_gpio);
+				pinctrl_select_state(motg->phy_pinctrl,motg->usb_id_pinctrl_active);
+			} else {		//otg disabled
+				gpio_direction_output(motg->pdata->usb_id_gpio,0);
+				pinctrl_select_state(motg->phy_pinctrl,motg->usb_id_pinctrl_sleep);
+			}
+			pr_err("%s otg_switch:%d,usb_id_gpio:%d\n",__func__,motg->otg_switch,gpio_get_value(motg->pdata->usb_id_gpio));
+		} else {
+			//do nothing
+		}
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -4057,6 +4352,10 @@ static int otg_power_property_is_writeable_usb(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_ONLINE:
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
+#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015-02-13 add for otg_swtich in 14043
+	case POWER_SUPPLY_PROP_OTG_SWITCH:
+#endif
 		return 1;
 	default:
 		break;
@@ -4078,6 +4377,10 @@ static enum power_supply_property otg_pm_power_props_usb[] = {
 	POWER_SUPPLY_PROP_SCOPE,
 	POWER_SUPPLY_PROP_TYPE,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+//#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015-02-13 add for otg_swtich in 14043
+	POWER_SUPPLY_PROP_OTG_SWITCH,
+//#endif
 };
 
 const struct file_operations msm_otg_bus_fops = {
@@ -4518,6 +4821,48 @@ static ssize_t dpdm_pulldown_enable_store(struct device *dev,
 static DEVICE_ATTR(dpdm_pulldown_enable, S_IRUGO | S_IWUSR,
 		dpdm_pulldown_enable_show, dpdm_pulldown_enable_store);
 
+#ifdef VENDOR_EDIT
+/*chaoying.chen@EXP.BaseDrv.otg,2014/12/22  Added for 14061 otg */
+static ssize_t show_OTG_status(struct device *dev,struct device_attribute *attr, char *buf)
+{
+	 pr_debug("[show_OTG_status]otg_flag=%x\n",!(atomic_read(&otg_id_state)));
+	return sprintf(buf, "%u\n", !(atomic_read(&otg_id_state)));
+}
+static ssize_t store_OTG_status(struct device *dev,struct device_attribute *attr, const char *buf, size_t size)
+{
+	char *pvalue = NULL;
+	int otg_flag = 0;
+	struct msm_otg *motg = the_msm_otg;
+
+	if(buf != NULL && size != 0)
+	{
+		otg_flag = simple_strtoul(buf,&pvalue,16);
+		pr_err("[store_OTG_status]otg_flag=0x%x\n",otg_flag);
+        mutex_lock(&(motg->otg_mutex_lock));
+        if(otg_flag){
+                 atomic_set(&otg_id_state,0);
+                 opchg_check_earphone_off();
+                 oppo_headset_detect_plug(0);
+                 atomic_set(&headset_status,0);
+                 atomic_set(&oppo_otg_state,1);
+                 opchg_set_switch_mode(NORMAL_CHARGER_MODE);
+                 oppo_headset_detect_plug(0);
+                 oppo_otg_id_status(atomic_read(&otg_id_state));
+
+        } else {
+                //atomic_set(&headset_status,1);
+                //oppo_headset_detect_plug(1);
+                if(atomic_read(&otg_id_state)== 0){
+                   atomic_set(&otg_id_state,1);
+                   oppo_otg_id_status(atomic_read(&otg_id_state));
+              }
+        }
+        mutex_unlock(&(motg->otg_mutex_lock));
+	}
+	return size;
+}
+static DEVICE_ATTR(OTG_status, 0666, show_OTG_status, store_OTG_status);
+#endif /*VENDOR_EDIT*/
 struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node;
@@ -4571,6 +4916,18 @@ struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
 				}
 				break;
 		}
+	}
+     /*chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Added for 14061 otg */
+     else if(is_project(OPPO_14005) && (get_Operator_Version() >= 5)){
+		of_get_property(node, "qcom,hsusb-otg-phy-init-seq-oppo-14061", &len);
+				if (len) {
+					pdata->phy_init_seq = devm_kzalloc(&pdev->dev, len, GFP_KERNEL);
+					if (!pdata->phy_init_seq)
+						return NULL;
+					of_property_read_u32_array(node, "qcom,hsusb-otg-phy-init-seq-oppo-14061",
+							pdata->phy_init_seq,
+							len/sizeof(*pdata->phy_init_seq));
+				}
 	} else {
 		of_get_property(node, "qcom,hsusb-otg-phy-init-seq", &len);
 		if (len) {
@@ -4587,6 +4944,12 @@ struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
 				&pdata->power_budget);
 	of_property_read_u32(node, "qcom,hsusb-otg-mode",
 				&pdata->mode);
+#ifdef VENDOR_EDIT
+/*chaoying.chen@EXP.BaseDrv.otg,2014/11/13  Added for 14061 otg */
+	if(is_project(OPPO_14005) && (get_Operator_Version() >= 5)){
+		pdata->mode = 3;
+	}
+#endif /* VENDOR_EDIT */
 	of_property_read_u32(node, "qcom,hsusb-otg-otg-control",
 				&pdata->otg_control);
 	of_property_read_u32(node, "qcom,hsusb-otg-default-mode",
@@ -4931,7 +5294,36 @@ static int msm_otg_probe(struct platform_device *pdev)
 		}
 		dev_dbg(&pdev->dev, "Target does not use pinctrl\n");
 		motg->phy_pinctrl = NULL;
+	} 
+#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015-02-13 add for otg_switch in 14043
+	else {
+		if(is_project(OPPO_14043)){
+			motg->usb_id_pinctrl_default = 
+		       	pinctrl_lookup_state(motg->phy_pinctrl, "default");
+			if (IS_ERR_OR_NULL(motg->usb_id_pinctrl_default)) {
+				pr_err("%s:%d Failed to get usb_id_pinctrl_default\n",
+					__func__, __LINE__);
+				return -EINVAL;
+			}
+			motg->usb_id_pinctrl_active = 
+			pinctrl_lookup_state(motg->phy_pinctrl, "active");
+			if (IS_ERR_OR_NULL(motg->usb_id_pinctrl_active)) {
+				pr_err("%s:%d Failed to get usb_id_pinctrl_active\n",
+					__func__, __LINE__);
+				return -EINVAL;
+			}
+			motg->usb_id_pinctrl_sleep = 
+			pinctrl_lookup_state(motg->phy_pinctrl, "sleep");
+			if (IS_ERR_OR_NULL(motg->usb_id_pinctrl_sleep)) {
+				pr_err("%s:%d Failed to get usb_id_pinctrl_sleep\n",
+					__func__, __LINE__);
+				return -EINVAL;
+			}
+			pr_err("%s pinctrl get success\n",__func__);
+		}
 	}
+#endif	/* VENDOR_EDIT */
 
 	if (pdata->mhl_enable) {
 		mhl_usb_hs_switch = devm_regulator_get(motg->phy.dev,
@@ -4971,6 +5363,13 @@ static int msm_otg_probe(struct platform_device *pdev)
 				(unsigned long) motg);
 	setup_timer(&motg->chg_check_timer, msm_otg_chg_check_timer_func,
 				(unsigned long) motg);
+	#ifdef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	motg->otg_wq = alloc_ordered_workqueue("k_otg", 0);
+	if (!motg->otg_wq) {
+		pr_err("%s: Unable to create workqueue otg_wq\n",__func__);
+		goto destroy_wlock;
+	}
+	#endif
 	ret = request_irq(motg->irq, msm_otg_irq, IRQF_SHARED,
 					"msm_otg", motg);
 	if (ret) {
@@ -4988,6 +5387,14 @@ static int msm_otg_probe(struct platform_device *pdev)
 		disable_irq(motg->async_irq);
 	}
 
+	#if 0//def VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	motg->inputbits_mutex = kmalloc(sizeof(*motg->inputbits_mutex),GFP_KERNEL);
+	if (!motg->inputbits_mutex) {
+		dev_err(&pdev->dev, "inputbits mutex alloc failed\n");
+		goto free_mutex;
+	}
+	mutex_init(motg->inputbits_mutex);
+	#endif
 	if (pdata->otg_control == OTG_PHY_CONTROL && pdata->mpm_otgsessvld_int)
 		msm_mpm_enable_pin(pdata->mpm_otgsessvld_int, 1);
 
@@ -5019,6 +5426,57 @@ static int msm_otg_probe(struct platform_device *pdev)
 		goto free_async_irq;
 	}
 
+#ifdef VENDOR_EDIT
+ /*chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Modified for 14061 otg */
+ if(is_project(OPPO_14005) && (get_Operator_Version() >= 5)){
+  //del id irq request for 14061
+ } else {
+	if (motg->pdata->mode == USB_OTG &&
+		motg->pdata->otg_control == OTG_PMIC_CONTROL) {
+
+		if (gpio_is_valid(motg->pdata->usb_id_gpio)) {
+			/* usb_id_gpio request */
+			ret = gpio_request(motg->pdata->usb_id_gpio,
+							"USB_ID_GPIO");
+			if (ret < 0) {
+				dev_err(&pdev->dev, "gpio req failed for id\n");
+				motg->pdata->usb_id_gpio = 0;
+				goto remove_phy;
+			}
+#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015-02-13 add for otg_switch in 14043
+			if(is_project(OPPO_14043)){
+				motg->otg_switch = false;
+				gpio_direction_output(motg->pdata->usb_id_gpio,0);
+				pr_err("%s usb_id_gpio val:%d,otg_switch:%d\n",__func__,
+					gpio_get_value(motg->pdata->usb_id_gpio),motg->otg_switch);
+			}
+#endif	/* VENDOR_EDIT */
+			/* usb_id_gpio to irq */
+			id_irq = gpio_to_irq(motg->pdata->usb_id_gpio);
+			motg->ext_id_irq = id_irq;
+		} else if (motg->pdata->pmic_id_irq) {
+			id_irq = motg->pdata->pmic_id_irq;
+		}
+
+		if (id_irq) {
+			ret = request_irq(id_irq,
+					  msm_id_irq,
+					  IRQF_TRIGGER_RISING |
+					  IRQF_TRIGGER_FALLING,
+					  "msm_otg", motg);
+			if (ret) {
+				dev_err(&pdev->dev, "request irq failed for ID\n");
+				goto remove_phy;
+			}
+		} else {
+			ret = -ENODEV;
+			dev_err(&pdev->dev, "ID IRQ doesn't exist\n");
+			goto remove_phy;
+		}
+	}
+}
+#else
 	if (motg->pdata->mode == USB_OTG &&
 		motg->pdata->otg_control == OTG_PMIC_CONTROL) {
 
@@ -5054,6 +5512,7 @@ static int msm_otg_probe(struct platform_device *pdev)
 			goto remove_phy;
 		}
 	}
+#endif //VENDOR_EDIT
 
 	msm_hsusb_mhl_switch_enable(motg, 1);
 
@@ -5067,11 +5526,27 @@ static int msm_otg_probe(struct platform_device *pdev)
 			"not available\n");
 
 	if (motg->pdata->phy_type == SNPS_28NM_INTEGRATED_PHY) {
+#ifdef VENDOR_EDIT
+ /*chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Modified for 14061 otg */
+        if(is_project(OPPO_14005) && (get_Operator_Version() >= 5)
+	          &&(motg->pdata->otg_control == OTG_PMIC_CONTROL)
+	          &&(motg->pdata->mode == USB_OTG)){
+		         motg->caps = ALLOW_PHY_POWER_COLLAPSE |
+				              ALLOW_PHY_RETENTION;
+        } else {
+		     if (motg->pdata->otg_control == OTG_PMIC_CONTROL &&
+			       (!(motg->pdata->mode == USB_OTG) ||
+			            motg->pdata->pmic_id_irq || motg->ext_id_irq))
+			              motg->caps = ALLOW_PHY_POWER_COLLAPSE |
+				                       ALLOW_PHY_RETENTION;
+        }
+#else //VENDOR_EDIT
         if (motg->pdata->otg_control == OTG_PMIC_CONTROL &&
 			(!(motg->pdata->mode == USB_OTG) ||
 			 motg->pdata->pmic_id_irq || motg->ext_id_irq))
 			motg->caps = ALLOW_PHY_POWER_COLLAPSE |
 				ALLOW_PHY_RETENTION;
+#endif //VENDOR_EDIT
 
 		if (motg->pdata->otg_control == OTG_PHY_CONTROL)
 			motg->caps = ALLOW_PHY_RETENTION |
@@ -5135,9 +5610,19 @@ static int msm_otg_probe(struct platform_device *pdev)
 		}
 	}
 
+	#ifdef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	init_waitqueue_head(&motg->host_suspend_wait);
+	#endif
 	motg->pm_notify.notifier_call = msm_otg_pm_notify;
 	register_pm_notifier(&motg->pm_notify);
 
+#ifdef VENDOR_EDIT
+/*chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Added for 14061 otg */
+    if(is_project(OPPO_14005) && (get_Operator_Version() >= 5)){
+       device_create_file(&pdev->dev, &dev_attr_OTG_status);
+       mutex_init(&(motg->otg_mutex_lock));
+    }
+#endif /*VENDOR_EDIT*/
 	return 0;
 
 remove_cdev:
@@ -5154,12 +5639,19 @@ remove_phy:
 free_async_irq:
 	if (motg->async_irq)
 		free_irq(motg->async_irq, motg);
+#if 0//def VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+free_mutex:
+	kfree(motg->inputbits_mutex);
+#endif
 free_irq:
 	free_irq(motg->irq, motg);
 destroy_wlock:
 	wake_lock_destroy(&motg->wlock);
 	clk_disable_unprepare(motg->core_clk);
 	msm_hsusb_ldo_enable(motg, USB_PHY_REG_OFF);
+	#ifdef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	destroy_workqueue(motg->otg_wq);
+	#endif
 free_ldo_init:
 	msm_hsusb_ldo_init(motg, 0);
 free_hsusb_vdd:
@@ -5234,7 +5726,9 @@ static int msm_otg_remove(struct platform_device *pdev)
 	cancel_delayed_work_sync(&motg->id_status_work);
 	cancel_delayed_work_sync(&motg->suspend_work);
 	cancel_work_sync(&motg->sm_work);
-
+	#ifdef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	destroy_workqueue(motg->otg_wq);
+	#endif
 	pm_runtime_resume(&pdev->dev);
 
 	device_init_wakeup(&pdev->dev, 0);

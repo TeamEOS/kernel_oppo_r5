@@ -1300,6 +1300,7 @@ static int sdhci_msm_parse_pinctrl_info(struct device *dev,
 		goto out;
 	}
 	pctrl_data->pctrl = pctrl;
+	
 	/* Look-up and keep the states handy to be used later */
 	pctrl_data->pins_active = pinctrl_lookup_state(
 			pctrl_data->pctrl, "active");
@@ -1898,10 +1899,11 @@ static int sdhci_msm_setup_vreg(struct sdhci_msm_pltfm_data *pdata,
 
 #ifdef VENDOR_EDIT //Jianfeng.Qiu@BSP.Driver, 2014-09-13, Add for sdcard vdd supply enable
     if (gpio_is_valid(pdata->sd_vdd_en)) {
-        if (enable) {
-            gpio_direction_output(pdata->sd_vdd_en, 1);
-        } else {
+        if (!enable) {
             gpio_direction_output(pdata->sd_vdd_en, 0);
+			gpio_set_value(pdata->sd_vdd_en, 0);
+			mdelay(2);
+			//pr_err("log11 powen off------ pdata->sd_vdd_en =%d\n",gpio_get_value(pdata->sd_vdd_en));
         }
     }
 #endif /* VENDOR_EDIT */
@@ -1919,6 +1921,18 @@ static int sdhci_msm_setup_vreg(struct sdhci_msm_pltfm_data *pdata,
 				goto out;
 		}
 	}
+	
+#ifdef VENDOR_EDIT //Jianfeng.Qiu@BSP.Driver, 2014-09-13, Add for sdcard vdd supply enable	
+	if (gpio_is_valid(pdata->sd_vdd_en)) {
+		mdelay(2);
+		if (enable) {
+			gpio_direction_output(pdata->sd_vdd_en, 1);
+			gpio_set_value(pdata->sd_vdd_en, 1);
+		//	pr_err("log12 power on------ pdata->sd_vdd_en =%d\n",gpio_get_value(pdata->sd_vdd_en));
+		}
+	}
+#endif /* VENDOR_EDIT */
+	
 out:
 	return ret;
 }
@@ -2095,6 +2109,7 @@ static irqreturn_t sdhci_msm_pwr_irq(int irq, void *data)
 
 	/* Handle BUS ON/OFF*/
 	if (irq_status & CORE_PWRCTL_BUS_ON) {
+	//	pr_err("sd irq  enable on ================================ =\n");
 		ret = sdhci_msm_setup_vreg(msm_host->pdata, true, false);
 		if (!ret) {
 			ret = sdhci_msm_setup_pins(msm_host->pdata, true);
@@ -2110,6 +2125,7 @@ static irqreturn_t sdhci_msm_pwr_irq(int irq, void *data)
 		io_level = REQ_IO_HIGH;
 	}
 	if (irq_status & CORE_PWRCTL_BUS_OFF) {
+	//	pr_err("sd irq  enable off================================ =\n");
 		ret = sdhci_msm_setup_vreg(msm_host->pdata, false, false);
 		if (!ret) {
 			ret = sdhci_msm_setup_pins(msm_host->pdata, false);
@@ -3027,6 +3043,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 #endif /* VENDOR_EDIT */
 
 	/* Setup regulators */
+	printk("init the vreg of %s\n", mmc_hostname(host->mmc));
 	ret = sdhci_msm_vreg_init(&pdev->dev, msm_host->pdata, true);
 	if (ret) {
 		dev_err(&pdev->dev, "Regulator setup failed (%d)\n", ret);
@@ -3314,7 +3331,7 @@ bus_clk_disable:
 pltfm_free:
 	sdhci_pltfm_free(pdev);
 out:
-#ifdef VENDOR_EDIT //Jianfeng.Qiu@BSP.Driver, 2014-09-13, Add for sdcard vdd supply
+#if 0//def VENDOR_EDIT //Jianfeng.Qiu@BSP.Driver, 2014-09-13, Add for sdcard vdd supply
     if (gpio_is_valid(msm_host->pdata->sd_vdd_en)) {
         //free gpio
         gpio_free(msm_host->pdata->sd_vdd_en);

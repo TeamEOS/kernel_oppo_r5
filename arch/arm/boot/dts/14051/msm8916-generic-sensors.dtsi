@@ -1,4 +1,5 @@
 #include "msm8916.dtsi"
+#include "msm8916-pinctrl.dtsi"
 
 &i2c_0 { /* BLSP1 QUP2 */
 	akm@c {
@@ -19,7 +20,7 @@
 		reg = <0x30>;
 		vdd-supply = <&pm8916_l17>;
 		vio-supply = <&pm8916_l6>;
-		memsic,dir = "reverse-x-axis-rightward";
+		memsic,dir = "reverse-x-axis-backward";
 		memsic,auto-report;
 	};
 	
@@ -77,9 +78,9 @@
 		st,axis-map-z = <2>;
 		st,g-range = <2>;
 		st,gpio-int1 = <&msm_gpio 112 0x2002>;
-		st,negate-x;
+/*		st,negate-x;*/
 		st,negate-y;
-	/*	st,negate-z;*/
+		st,negate-z;
 	};
 	
 	bosch@18 { /* Accelerometer sensor */
@@ -122,6 +123,9 @@
 	};*/
 	hall {
 		compatible = "hall";
+		pinctrl-names = "default","sleep";
+                pinctrl-0 = <&hall_irq_default>;
+                pinctrl-1 = <&hall_irq_sleep>;
 		interrupt-parent = <&msm_gpio>;
 		interrupts = <121 8>;
 		hall,irq-gpio = <&msm_gpio 121 0x2008>;

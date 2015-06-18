@@ -46,12 +46,15 @@
 #define BQ27541_REG_AE			0x22
 #define BQ27541_REG_AP			0x24
 #define BQ27541_REG_TTECP		0x26
+#define BQ27541_REG_INTTEMP		0x28
+#define BQ27541_REG_CC			0x2a
 #define BQ27541_REG_SOH			0x28
 #define BQ27541_REG_SOC			0x2c
-#define BQ27541_REG_NIC			0x2e
+#define BQ27541_REG_NIC			0x2e//#define BQ27541_REG_SOH		0x2e
 #define BQ27541_REG_ICR			0x30
 #define BQ27541_REG_LOGIDX		0x32
-#define BQ27541_REG_LOGBUF		0x34
+#define BQ27541_REG_LOGBUF		0x34//#define BQ27541_REG_PCHG		0x34
+#define BQ27541_REG_DOD0		0x36
 
 #define BQ27541_FLAG_DSC		BIT(0)
 #define BQ27541_FLAG_FC			BIT(9)
@@ -90,18 +93,26 @@
 
 #define CAPACITY_SALTATE_COUNTER 4
 #define CAPACITY_SALTATE__FAST_COUNTER_20S 		4				// 5s*4
-#define CAPACITY_SALTATE__AC_COUNTER_50S 		10				// 5s*10
+#define CAPACITY_SALTATE__AC_COUNTER_40S 		8				// 5s*10
 #define CAPACITY_SALTATE__USB_COUNTER_1MIN 		12				// 5s*12
+#define CAPACITY_SALTATE_COUNTER_CHARGING_TERM_30S	6			// 5s*6
+#define CAPACITY_SALTATE_COUNTER_CHARGING_TERM_60S	12			// 5s*6
 
 #define CAPACITY_SALTATE_COUNTER_NOT_CHARGING		12//20			// 5s*20
-#define CAPACITY_SALTATE_COUNTER_80				16//30			// 5s*30
-#define CAPACITY_SALTATE_COUNTER_90				20//40			// 5s*40
-#define CAPACITY_SALTATE_COUNTER_95				30//60			// 5s*60
-#define CAPACITY_SALTATE_COUNTER_FULL			50//120			// 5s*120
+#define CAPACITY_SALTATE_COUNTER_10S				2 // 10
+#define CAPACITY_SALTATE_COUNTER_20S				4 // 10
+#define CAPACITY_SALTATE_COUNTER_40S				8 //40			// 5s*16
+#define CAPACITY_SALTATE_COUNTER_60_60S			12//40			// 5s*20
+#define CAPACITY_SALTATE_COUNTER_95_150S			30//150			// 5s*30
+#define CAPACITY_SALTATE_COUNTER_FULL_250S		50//250			// 5s*50
 
 #define LOW_POWER_VOLTAGE_3600MV				3600000
 #define LOW_POWER_VOLTAGE_3500MV				3500000
 #define LOW_POWER_VOLTAGE_3400MV				3400000
+#define LOW_POWER_VOLTAGE_3300MV				3300000
+#define LOW_POWER_VOLTAGE_2500MV				2500000
+#define SOC_SHUTDOWN_VALID_LIMITS				20
+#define TEN_MINUTES							600
 #define CAPACITY_SALTATE_COUNTER_LOW_VOLTAGE_30S	6			// 5s*6
 #define CAPACITY_SALTATE_COUNTER_LOW_VOLTAGE_15S	3			// 5s*3
 
@@ -109,9 +120,11 @@
 #ifdef OPPO_BQ27541_PAR
 struct opchg_bms_charger *bq27541_di = NULL;
 struct opchg_gpio_control opchg_gpio;
+int vooc_start_step=OPCHG_VOOC_TO_STANDARD;
 #else
 extern struct opchg_bms_charger *bq27541_di;
 extern struct opchg_gpio_control opchg_gpio;
+extern int vooc_start_step;
 #endif
 
 OPPO_BQ27541_EXT int opchg_set_gpio_val(int gpio , u8 val);

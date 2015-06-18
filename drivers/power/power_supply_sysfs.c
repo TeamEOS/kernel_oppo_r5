@@ -216,6 +216,13 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(usb_type),
 	POWER_SUPPLY_ATTR(BatteryRequestPoweroff),
 	POWER_SUPPLY_ATTR(charge_technology),
+	POWER_SUPPLY_ATTR(BatteryFcc),
+	POWER_SUPPLY_ATTR(BatterySoh),
+	POWER_SUPPLY_ATTR(batt_cc),
+#endif
+#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015-02-13 add for otg_switch in 14043
+	POWER_SUPPLY_ATTR(otg_switch),
 #endif
 	/* Properties of type `const char *' */
 	POWER_SUPPLY_ATTR(model_name),

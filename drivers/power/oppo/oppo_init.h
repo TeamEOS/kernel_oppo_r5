@@ -28,9 +28,11 @@ OPPO_INIT_EXT int opchg_parse_dt(struct opchg_charger *chip);
 #ifdef OPPO_INIT_PAR
 struct qpnp_battery_gauge *qpnp_batt_gauge = NULL;
 struct opchg_charger *opchg_chip = NULL;
+struct oppo_qpnp_chg_chip *opchg_pimic_chip = NULL;
 #else
 extern struct qpnp_battery_gauge *qpnp_batt_gauge;
 extern struct opchg_charger *opchg_chip;
+extern struct oppo_qpnp_chg_chip *opchg_pimic_chip;
 #endif
 
 OPPO_INIT_EXT void qpnp_battery_gauge_register(struct qpnp_battery_gauge *batt_gauge);

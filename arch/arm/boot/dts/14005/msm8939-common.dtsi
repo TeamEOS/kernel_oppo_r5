@@ -52,11 +52,14 @@
 			label = "external_image_mem";
 		};
 
+		//OPPO 2014-09-09 geyixue chang for modem_subsystem region*/
+		//#ifdef VENDOR_EDIT
+		/*
 		modem_adsp_mem: modem_adsp_region@0 {
 			linux,reserve-contiguous-region;
 			linux,reserve-region;
 			linux,remove-completely;
-			reg = <0x0 0x86800000 0x0 0x05400000>;
+			reg = <0x0 0x86800000 0x0 0x04e00000>;
 			label = "modem_adsp_mem";
 		};
 
@@ -64,10 +67,29 @@
 			linux,reserve-contiguous-region;
 			linux,reserve-region;
 			linux,remove-completely;
-			reg = <0x0 0x8bc00000 0x0 0x0600000>;
+			reg = <0x0 0x8b600000 0x0 0x0600000>;
 			label = "peripheral_mem";
 		};
+		*/
+		//#else
+		modem_adsp_mem: modem_adsp_region@0 {
+			linux,reserve-contiguous-region;
+			linux,reserve-region;
+			linux,remove-completely;
+		//	reg = <0x0 0x86800000 0x0 0x05400000>;
+			reg = <0x0 0x86800000 0x0 0x05600000>;
+			label = "modem_adsp_mem";
+		};
 
+		peripheral_mem: pheripheral_region@0 {
+			linux,reserve-contiguous-region;
+			linux,reserve-region;
+			linux,remove-completely;
+		//	reg = <0x0 0x8bc00000 0x0 0x0600000>;
+			reg = <0x0 0x8be00000 0x0 0x0600000>;
+			label = "peripheral_mem";
+		};
+		//#endif
 		venus_mem: venus_region@0 {
 			linux,reserve-contiguous-region;
 			linux,memory-limit = <0x90000000>;
@@ -626,7 +648,7 @@
 		compatible = "qcom,bimc-bwmon";
 		reg = <0x408000 0x300>, <0x401000 0x200>;
 		reg-names = "base", "global_base";
-		interrupts = <0 183 1>;
+		interrupts = <0 183 4>;
 		qcom,mport = <0>;
 		qcom,target-dev = <&cpubw>;
 	};
@@ -778,6 +800,8 @@
 		//qcom,hsusb-otg-phy-init-seq =
 		//	<0x44 0x80 0x6B 0x81 0x24 0x82 0x13 0x83 0xffffffff>;
 		qcom,hsusb-otg-phy-init-seq =<0x44 0x80 0x6F 0x81 0x34 0x82 0x33 0x83 0xffffffff>;
+		//chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Added for 14061 otg 
+		qcom,hsusb-otg-phy-init-seq-oppo-14061 =<0x44 0x80 0x65 0x81 0x3e 0x82 0x33 0x83 0xffffffff>;
 		
 		qcom,hsusb-otg-phy-type = <2>;
 		qcom,hsusb-otg-mode = <1>;
@@ -790,14 +814,19 @@
 		qcom,msm-bus,num-paths = <1>;
 		qcom,msm-bus,vectors-KBps =
 				<87 512 0 0>,
-				<87 512 60000 960000>,
+				<87 512 80000 0>,
 				<87 512 6000  6000>;
 		clocks = <&clock_gcc clk_gcc_usb_hs_ahb_clk>,
 			 <&clock_gcc clk_gcc_usb_hs_system_clk>,
 			 <&clock_gcc clk_gcc_usb2a_phy_sleep_clk>,
+			 <&clock_rpm clk_bimc_usb_a_clk>,
+			 <&clock_rpm clk_snoc_usb_a_clk>,
+			 <&clock_rpm clk_pcnoc_usb_a_clk>,
 			 <&clock_rpm clk_xo_otg_clk>;
 		clock-names = "iface_clk", "core_clk", "sleep_clk",
+				"bimc_clk", "snoc_clk", "pcnoc_clk",
 				"xo";
+		qcom,bus-clk-rate = <331200000 200000000 100000000>;
 	};
 
 	android_usb: android_usb@086000c8 {
@@ -1235,7 +1264,8 @@
 
 		qcom,firmware-name = "modem";
 		qcom,pil-self-auth;
-
+		qcom,pil-mba-region;
+		
 		/* GPIO inputs from mss */
 		qcom,gpio-err-fatal = <&smp2pgpio_ssr_smp2p_1_in 0 0>;
 		qcom,gpio-err-ready = <&smp2pgpio_ssr_smp2p_1_in 1 0>;
@@ -1741,12 +1771,9 @@
 };
 
 &gdsc_venus {
-	clock-names = "bus_clk", "core_clk",
-			"core0_clk", "core1_clk";
+	clock-names = "bus_clk", "core_clk";
 	clocks = <&clock_gcc clk_gcc_venus0_axi_clk>,
-		 <&clock_gcc clk_gcc_venus0_vcodec0_clk>,
-		 <&clock_gcc clk_gcc_venus0_core0_vcodec0_clk>,
-		 <&clock_gcc clk_gcc_venus0_core1_vcodec0_clk>;
+		 <&clock_gcc clk_gcc_venus0_vcodec0_clk>;
 	status = "okay";
 };
 
@@ -1785,10 +1812,16 @@
 };
 
 &gdsc_venus_core0 {
+	qcom,support-hw-trigger;
+	clock-names ="core0_clk";
+	clocks = <&clock_gcc clk_gcc_venus0_core0_vcodec0_clk>;
 	status = "okay";
 };
 
 &gdsc_venus_core1 {
+	qcom,support-hw-trigger;
+	clock-names ="core1_clk";
+	clocks = <&clock_gcc clk_gcc_venus0_core1_vcodec0_clk>;
 	status = "okay";
 };
 

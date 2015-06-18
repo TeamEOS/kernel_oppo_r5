@@ -28,6 +28,14 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 #endif
 
+#ifdef VENDOR_EDIT
+/* xianglie.liu 2014-10-06 add for denoice vcm */
+extern unsigned char my_vcm_id;
+#define VCM_TRULY 2
+#define VCM_SUUNY 1
+/* zhengrong.zhang 2014-12-28 Add for 14045 module Compatible */
+extern bool openloop_flag;
+#endif
 
 static int32_t msm_actuator_power_up(struct msm_actuator_ctrl_t *a_ctrl);
 static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl);
@@ -145,7 +153,15 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 				i2c_byte1 = write_arr[i].reg_addr;
 				i2c_byte2 = value;
 				if (size != (i+1)) {
+#ifndef VENDOR_EDIT
+/* zhengrong.zhang 2015-02-07 Modify for 15011 VCM DW9718 */
 					i2c_byte2 = value & 0xFF;
+#else
+					if (size==2)
+						i2c_byte2 = (value & 0xFF00) >> 8;
+					else 
+						i2c_byte2 = value & 0xFF;
+#endif
 					CDBG("byte1:0x%x, byte2:0x%x\n",
 						i2c_byte1, i2c_byte2);
 					i2c_tbl[a_ctrl->i2c_tbl_index].
@@ -157,7 +173,15 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 					a_ctrl->i2c_tbl_index++;
 					i++;
 					i2c_byte1 = write_arr[i].reg_addr;
+#ifndef VENDOR_EDIT
+/* zhengrong.zhang 2015-02-07 Modify for 15011 VCM DW9718 */
 					i2c_byte2 = (value & 0xFF00) >> 8;
+#else
+					if (size==2)
+						i2c_byte2 = value & 0xFF;
+					else
+						i2c_byte2 = (value & 0xFF00) >> 8;
+#endif
 				}
 			} else {
 				i2c_byte1 = (value & 0xFF00) >> 8;
@@ -456,6 +480,7 @@ static int32_t msm_actuator_move_focus(
 #ifdef VENDOR_EDIT
 /*shijie.zhuo,2014/09/10,Add for close camera click*/
         a_ctrl->current_lens_pos = a_ctrl->step_position_table[a_ctrl->curr_step_pos];
+        a_ctrl->hw_params = ringing_params_kernel.hw_params;
 #endif
 	}
 
@@ -484,10 +509,10 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 	uint16_t step_boundary = 0;
 	uint32_t max_code_size = 1;
 	uint16_t data_size = set_info->actuator_params.data_size;
-#ifdef VENDOR_EDIT
-/*OPPO 2014-08-08 hufeng modify for AF OTP*/
+	#ifdef VENDOR_EDIT
+	/*OPPO 2014-08-08 hufeng modify for AF OTP*/
 	uint32_t cur_code_1000x = 0;
-#endif
+	#endif
 	CDBG("Enter\n");
 
 	for (; data_size > 0; data_size--)
@@ -514,10 +539,10 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 		return -ENOMEM;
 
 	cur_code = set_info->af_tuning_params.initial_code;
-#ifdef VENDOR_EDIT
-/*OPPO 2014-08-08 hufeng modify for AF OTP*/
+	#ifdef VENDOR_EDIT
+	/*OPPO 2014-08-08 hufeng modify for AF OTP*/
 	cur_code_1000x = cur_code*1000;
-#endif
+	#endif
 	a_ctrl->step_position_table[step_index++] = cur_code;
 	for (region_index = 0;
 		region_index < a_ctrl->region_size;
@@ -527,15 +552,21 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 		step_boundary =
 			a_ctrl->region_params[region_index].
 			step_bound[MOVE_NEAR];
+		CDBG("initial_code = %d, code_per_step = %d\n", set_info->af_tuning_params.initial_code, code_per_step);
 		for (; step_index <= step_boundary;
 			step_index++) {
-#ifdef VENDOR_EDIT
-/*OPPO 2014-08-08 hufeng modify for AF OTP*/
-			cur_code_1000x +=code_per_step;
-			cur_code = cur_code_1000x/1000;
-#else
+			#ifdef VENDOR_EDIT
+			/*OPPO 2014-08-08 hufeng modify for AF OTP*/
+			if (code_per_step >= 150)
+			{
+				cur_code_1000x +=code_per_step;
+				cur_code = cur_code_1000x/1000;
+			}
+			else
+			{
 			cur_code += code_per_step;
-#endif
+			}
+			#endif
 			if (cur_code < max_code_size)
 				a_ctrl->step_position_table[step_index] =
 					cur_code;
@@ -592,32 +623,202 @@ static int32_t msm_actuator_vreg_control(struct msm_actuator_ctrl_t *a_ctrl,
 	return rc;
 }
 
-#ifdef VENDOR_EDIT
-/*shijie.zhuo,2014/09/10,Add for close camera click*/
+#ifndef VENDOR_EDIT
+/*shijie.zhuo,2015/02/12 not use this logic because project name*/
 static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl)
 {
 	int32_t rc = 0;
-	CDBG("Enter\n");
-	if (a_ctrl->actuator_state != ACTUATOR_POWER_DOWN) {
-		if (a_ctrl->vcm_enable) {
-			rc = gpio_direction_output(a_ctrl->vcm_pwd, 0);
-			if (!rc)
-				gpio_free(a_ctrl->vcm_pwd);
-		}
-		rc = msm_actuator_vreg_control(a_ctrl, 0);
-		if (rc < 0) {
-			pr_err("%s failed %d\n", __func__, __LINE__);
-			return rc;
-		}
+	uint16_t code = 0;
+	uint8_t buf[2];
+	uint16_t value = 0;
 
-		if (a_ctrl->step_position_table != NULL)
+	CDBG("Enter\n");
+	if (is_project(OPPO_14043)) {  	
+ 		if (a_ctrl->actuator_state != ACTUATOR_POWER_DOWN) {
+			if (a_ctrl->vcm_enable) {
+				rc = gpio_direction_output(a_ctrl->vcm_pwd, 0);
+				if (!rc)
+					gpio_free(a_ctrl->vcm_pwd);
+			}
+			code = a_ctrl->current_lens_pos;
+			CDBG("curr_lens_pos = %d\n",a_ctrl->current_lens_pos);
+
+			if (VCM_TRULY == my_vcm_id) { // romh
+				if (code>200) {
+					code = 200;
+					value = (code) |(0xFF00 & 0xc400);
+					buf[0] = (value & 0xFF00) >> 8;
+					buf[1] = value & 0xFF;
+					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+						buf[0],&buf[1], 1);
+					usleep_range(15000, 16000);
+				}
+				while(code){
+					CDBG("code1 %d\n",code);
+					code = (code > 10)?(code - 10) : 0;
+					value = (code) |(0xFF00 & 0xc400);
+					buf[0] = (value & 0xFF00) >> 8;
+					buf[1] = value & 0xFF;
+					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+						buf[0],&buf[1], 1);
+					usleep_range(10000, 12000);
+				}
+			}else {
+				if (code>200) {
+					code = 200;
+					buf[0] = (code >> 4);
+					buf[1] = ((code << 4) | 0x7) & 0xFF;
+					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+						buf[0],&buf[1], 1);
+					usleep_range(15000, 16000);
+				}
+				while(code) {
+					CDBG("code %d\n",code);
+					code = (code > 10)?(code - 10) : 0;
+					buf[0] = (code >> 4);
+					buf[1] = ((code << 4) | 0x7) & 0xFF;
+
+					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+						buf[0],&buf[1], 1);
+					usleep_range(10000, 12000);
+				}
+			}
+
+			buf[0] = buf[1] =  0;
+			rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+				buf[0],&buf[1], 1);
+			usleep_range(10000, 12000);
+			a_ctrl->actuator_state = ACTUATOR_POWER_DOWN;
+    
 			kfree(a_ctrl->step_position_table);
-		a_ctrl->step_position_table = NULL;
-		if (a_ctrl->i2c_reg_tbl != NULL)
+			a_ctrl->step_position_table = NULL;
 			kfree(a_ctrl->i2c_reg_tbl);
-		a_ctrl->i2c_reg_tbl = NULL;
-		a_ctrl->i2c_tbl_index = 0;
-		a_ctrl->actuator_state = ACTUATOR_POWER_DOWN;
+			a_ctrl->i2c_reg_tbl = NULL;
+			a_ctrl->i2c_tbl_index = 0;
+		}
+	}
+	else if (is_project(OPPO_14037)||is_project(OPPO_15005)||is_project(OPPO_15057)) {
+ 		if (a_ctrl->actuator_state != ACTUATOR_POWER_DOWN) {
+			if (a_ctrl->vcm_enable) {
+				rc = gpio_direction_output(a_ctrl->vcm_pwd, 0);
+				if (!rc)
+					gpio_free(a_ctrl->vcm_pwd);
+			}
+			code = a_ctrl->current_lens_pos;
+			CDBG("curr_lens_pos = %d\n",a_ctrl->current_lens_pos);
+
+			{
+				if (code>250) {
+					code = 250;
+					buf[0] = (code >> 4);
+					buf[1] = ((code << 4) | 0x7) & 0xFF;
+					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+						buf[0],&buf[1], 1);
+					usleep_range(15000, 16000);
+				}
+				while(code) {
+					CDBG("code %d\n",code);
+					code = (code > 50)?(code - 50) : 0;
+					buf[0] = (code >> 4);
+					buf[1] = ((code << 4) | 0x7) & 0xFF;
+
+					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+						buf[0],&buf[1], 1);
+					usleep_range(10000, 12000);
+				}
+			}
+
+			buf[0] = buf[1] =  0;
+			rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+				buf[0],&buf[1], 1);
+			usleep_range(10000, 12000);
+			a_ctrl->actuator_state = ACTUATOR_POWER_DOWN;
+    
+			kfree(a_ctrl->step_position_table);
+			a_ctrl->step_position_table = NULL;
+			kfree(a_ctrl->i2c_reg_tbl);
+			a_ctrl->i2c_reg_tbl = NULL;
+			a_ctrl->i2c_tbl_index = 0;
+		}
+	}
+	else if (is_project(OPPO_14045) || is_project(OPPO_14046) || is_project(OPPO_14047)) {  	
+ 		if (a_ctrl->actuator_state != ACTUATOR_POWER_DOWN) {
+			if (a_ctrl->vcm_enable) {
+				rc = gpio_direction_output(a_ctrl->vcm_pwd, 0);
+				if (!rc)
+					gpio_free(a_ctrl->vcm_pwd);
+			}
+
+			if (openloop_flag) { // romh
+				pr_err("actuator is romh\n");
+				code = a_ctrl->current_lens_pos;
+				CDBG("curr_lens_pos = %d\n",a_ctrl->current_lens_pos);
+            
+				if (code>200) {
+					code = 200;
+					value = (code) |(0xFF00 & 0xc400);
+					buf[0] = (value & 0xFF00) >> 8;
+					buf[1] = value & 0xFF;
+					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+						buf[0],&buf[1], 1);
+					usleep_range(15000, 16000);
+				}
+				while(code){
+					CDBG("code1 %d\n",code);
+					code = (code > 10)?(code - 10) : 0;
+					value = (code) |(0xFF00 & 0xc400);
+					buf[0] = (value & 0xFF00) >> 8;
+					buf[1] = value & 0xFF;
+					rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+						buf[0],&buf[1], 1);
+					usleep_range(10000, 12000);
+				}
+            
+				buf[0] = buf[1] =  0;
+				rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,
+				    buf[0],&buf[1], 1);
+				usleep_range(10000, 12000);
+			}
+
+			rc = msm_actuator_vreg_control(a_ctrl, 0);
+			if (rc < 0) {
+			    pr_err("%s failed %d\n", __func__, __LINE__);
+			    return rc;
+			}
+	   
+			if (a_ctrl->step_position_table != NULL)
+			    kfree(a_ctrl->step_position_table);
+			a_ctrl->step_position_table = NULL;
+			if (a_ctrl->i2c_reg_tbl != NULL)
+			    kfree(a_ctrl->i2c_reg_tbl);
+			a_ctrl->i2c_reg_tbl = NULL;
+			a_ctrl->i2c_tbl_index = 0;
+			a_ctrl->actuator_state = ACTUATOR_POWER_DOWN;     
+ 		}
+	}
+	else {
+	   	if (a_ctrl->actuator_state != ACTUATOR_POWER_DOWN) {
+	   		if (a_ctrl->vcm_enable) {
+	   			rc = gpio_direction_output(a_ctrl->vcm_pwd, 0);
+	   			if (!rc)
+	   				gpio_free(a_ctrl->vcm_pwd);
+	   		}
+	   
+	   		rc = msm_actuator_vreg_control(a_ctrl, 0);
+	   		if (rc < 0) {
+	   			pr_err("%s failed %d\n", __func__, __LINE__);
+	   			return rc;
+	   		}
+	   
+	   		if (a_ctrl->step_position_table != NULL)
+	   			kfree(a_ctrl->step_position_table);
+	   		a_ctrl->step_position_table = NULL;
+	   		if (a_ctrl->i2c_reg_tbl != NULL)
+	   			kfree(a_ctrl->i2c_reg_tbl);
+	   		a_ctrl->i2c_reg_tbl = NULL;
+	   		a_ctrl->i2c_tbl_index = 0;
+	   		a_ctrl->actuator_state = ACTUATOR_POWER_DOWN;
+	   	}
 	}
 	CDBG("Exit\n");
 	return rc;
@@ -626,6 +827,14 @@ static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl)
 static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl)
 {
 	int32_t rc = 0;
+#ifdef VENDOR_EDIT
+/*shijie.zhuo,2015/02/12,Add for close camera click not use project name*/
+    uint16_t code = 0;
+    uint8_t buf[2];
+    uint16_t value = 0;
+    uint16_t numsteps = 20;
+    struct msm_actuator_reg_params_t *write_arr = a_ctrl->reg_tbl;
+#endif
 	CDBG("Enter\n");
 	if (a_ctrl->actuator_state != ACTUATOR_POWER_DOWN) {
 		if (a_ctrl->vcm_enable) {
@@ -634,6 +843,33 @@ static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl)
 				gpio_free(a_ctrl->vcm_pwd);
 		}
 
+#ifdef VENDOR_EDIT
+/*shijie.zhuo,2015/02/12,Add for close camera click not use project name*/        
+        code = a_ctrl->current_lens_pos;
+        CDBG("current_lens_pos = %d,act_type = %d reg_tbl_size %d\n",
+              a_ctrl->current_lens_pos,a_ctrl->act_type,a_ctrl->reg_tbl_size);
+        if(a_ctrl->act_type==ACTUATOR_VCM && a_ctrl->reg_tbl_size==1){
+          CDBG("hw_params %x,data_shift %x,hw_mask %x,hw_shift %x",
+                a_ctrl->hw_params,write_arr[0].data_shift,write_arr[0].hw_mask,write_arr[0].hw_shift);
+          while(code && write_arr!=NULL) {
+            CDBG("%s: code is = %d\n",__func__,code);
+            code = (code > numsteps)?(code - numsteps) : 0;
+            value = (code << write_arr[0].data_shift) |
+                ((a_ctrl->hw_params & write_arr[0].hw_mask)>>write_arr[0].hw_shift);
+            buf[0] = (value & 0xFF00) >> 8;
+            buf[1] = value & 0xFF;
+            rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,buf[0],&buf[1], 1);
+            if (rc < 0)
+              pr_err(" warning, rc=%d", rc);
+            usleep_range(8000, 9000);
+          }
+          buf[0] = buf[1] = 0;
+          rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(&a_ctrl->i2c_client,buf[0],&buf[1], 1);
+          if (rc < 0)
+            pr_err(" warning, rc=%d", rc);
+          usleep_range(8000, 9000);
+        }
+#endif        
 		rc = msm_actuator_vreg_control(a_ctrl, 0);
 		if (rc < 0) {
 			pr_err("%s failed %d\n", __func__, __LINE__);
@@ -727,6 +963,10 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 	a_ctrl->region_size = set_info->af_tuning_params.region_size;
 	a_ctrl->pwd_step = set_info->af_tuning_params.pwd_step;
 	a_ctrl->total_steps = set_info->af_tuning_params.total_steps;
+#ifdef VENDOR_EDIT
+/*shijie.zhuo,2015/02/12,Add for close camera click not use project name*/
+      a_ctrl->act_type = set_info->actuator_params.act_type;
+#endif
 
 	if (copy_from_user(&a_ctrl->region_params,
 		(void *)set_info->af_tuning_params.region_params,
