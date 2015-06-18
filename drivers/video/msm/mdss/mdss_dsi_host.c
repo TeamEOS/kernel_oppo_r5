@@ -1621,7 +1621,7 @@ if(is_project(OPPO_15005)&&RTC597125_15005DEBUG)
 	pr_err("%s:  from_mdp=%d pid=%d\n", __func__, from_mdp, current->pid);
 /*  YongPeng.Yi@SWDP.MultiMedia END */
 #endif /*VENDOR_EDIT*/
-	if (req == NULL)
+	if (req == NULL)
 		goto need_lock;
 
 	MDSS_XLOG(ctrl->ndx, req->flags, req->cmds_cnt, from_mdp, current->pid);

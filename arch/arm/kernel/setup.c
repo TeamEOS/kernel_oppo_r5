@@ -934,6 +934,12 @@ static const char *hwcap_str[] = {
 	"vfpv4",
 	"idiva",
 	"idivt",
+	//#ifdef VENDOR_EDIT
+	/*dengnw@bsp.drv   add QCOM figo give the patch for  case01960402 in 20150405*/
+	"vfpd32",
+	"lpae",
+	"evtstrm",
+	//#endif
 	NULL
 };
 
