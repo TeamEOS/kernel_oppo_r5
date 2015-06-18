@@ -31,6 +31,13 @@
 #include <soc/qcom/scm.h>
 #include <soc/qcom/restart.h>
 
+#ifdef VENDOR_EDIT//dengnw@ProDrv,2014.3.12 add for OTG
+#include <mach/oppo_project.h>
+extern int opchg_set_otg_enable(void);
+extern int opchg_set_otg_disable(void);
+extern int opchg_get_otg_enable(void);
+#endif
+
 #define EMERGENCY_DLOAD_MAGIC1    0x322A4F99
 #define EMERGENCY_DLOAD_MAGIC2    0xC67E4350
 #define EMERGENCY_DLOAD_MAGIC3    0x77777777
@@ -59,7 +66,11 @@ static void *emergency_dload_mode_addr;
 static bool scm_dload_supported;
 
 static int dload_set(const char *val, struct kernel_param *kp);
+#ifndef VENDOR_EDIT //yixue.ge@bsp.drv modify we should set this value to 0 for mp softversion
 static int download_mode = 1;
+#else
+static int download_mode = 0;
+#endif
 module_param_call(download_mode, dload_set, param_get_int,
 			&download_mode, 0644);
 static int panic_prep_restart(struct notifier_block *this,
@@ -94,13 +105,10 @@ static void set_dload_mode(int on)
 	dload_mode_enabled = on;
 }
 
-#ifndef VENDOR_EDIT
-/*Tong.han@BSP.group.TP modified for do not use hard-reset*/
 static bool get_dload_mode(void)
 {
 	return dload_mode_enabled;
 }
-#endif /*VENDOR_EDIT*/
 
 static void enable_emergency_dload_mode(void)
 {
@@ -208,16 +216,11 @@ static void msm_restart_prepare(const char *cmd)
 			(in_panic || restart_mode == RESTART_DLOAD));
 #endif
 
-#ifndef VENDOR_EDIT
-/* Tong.han modified for warm reboot. boot_reason will be lost if we use  PON_POWER_OFF_HARD_RESET*/
 	/* Hard reset the PMIC unless memory contents must be maintained. */
 	if (get_dload_mode() || (cmd != NULL && cmd[0] != '\0'))
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
 	else
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_HARD_RESET);
-#else
-    qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
-#endif /*VENDOR_EDIT*/
 
 #ifndef VENDOR_EDIT
 /* OPPO 2013.07.09 hewei modify begin for restart mode*/
@@ -267,15 +270,7 @@ static void msm_restart_prepare(const char *cmd)
             __raw_writel(0x7766550c, restart_reason);
 		} else if (!strncmp(cmd, "edl", 3)) {
 			enable_emergency_dload_mode();
-		} else {
-			/* OPPO 2014.08.20 liushu added for reboot failure when the usb or charger is enabled*/
-			qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
-			__raw_writel(0x77665501, restart_reason);
-			  }
-	}else {
-		/* OPPO 2014.08.20 liushu added for reboot failure when the usb or charger is enabled*/
-		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
-		__raw_writel(0x77665501, restart_reason);
+		}
 	}
 /* OPPO 2013.07.09 hewei modify en for restart mode*/
 #endif //VENDOR_EDIT
@@ -294,7 +289,14 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 	int ret;
 
 	pr_notice("Going down for restart now\n");
-
+	#ifdef VENDOR_EDIT//Fanhong.Kong@ProDrv,2014.3.12 add for OTG
+	if(is_project(OPPO_14045))
+	{
+	//	opchg_set_otg_disable();
+		pr_err("do_msm_restart oppo_debug set otg disable\n");
+	}
+	#endif/*VENDOR_EDIT*/
+	
 	msm_restart_prepare(cmd);
 
 	/* Needed to bypass debug image on some chips */
@@ -314,6 +316,14 @@ static void do_msm_poweroff(void)
 	int ret;
 
 	pr_notice("Powering off the SoC\n");
+	#ifdef VENDOR_EDIT//Fanhong.Kong@ProDrv,2014.3.12 add for OTG
+	if(is_project(OPPO_14045))
+	{
+	//	opchg_set_otg_disable();
+		pr_err("do_msm_poweroff oppo_debug set otg disable\n");
+	}
+	#endif/*VENDOR_EDIT*/
+	
 #ifdef CONFIG_MSM_DLOAD_MODE
 	set_dload_mode(0);
 #endif

@@ -8,7 +8,3 @@
 #define TP_OFILM 4
 
 #define TP_TEST_ENABLE 1
-
-
-int DiagonalUpperLimit = 1100;
-int DiagonalLowerLimit = 900;

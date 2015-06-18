@@ -16,6 +16,8 @@
 #include "msm_camera_i2c_mux.h"
 #include "msm_cci.h"
 
+#include <mach/oppo_project.h> 
+
 #define CAM_SENSOR_PINCTRL_STATE_SLEEP "cam_suspend"
 #define CAM_SENSOR_PINCTRL_STATE_DEFAULT "cam_default"
 /*#define CONFIG_MSM_CAMERA_DT_DEBUG*/
@@ -30,6 +32,19 @@
 /* zhengrong.zhang 2014-11-08 Add for open flash problem in status bar problem when camera opening */
 bool camera_power_status = FALSE;
 #endif
+
+static uint16_t my_flashlight_id = 0; // lxl add
+
+static uint16_t get_flashlight_id(void)
+{
+	return my_flashlight_id;
+}
+
+void set_flashlight_id(uint16_t i)
+{
+	my_flashlight_id = i;
+}
+EXPORT_SYMBOL(set_flashlight_id);
 
 int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 	int num_vreg, struct msm_sensor_power_setting *power_setting,
@@ -181,7 +196,12 @@ int msm_sensor_get_sub_module_index(struct device_node *of_node,
 			pr_err("%s:%d failed %d\n", __func__, __LINE__, rc);
 			goto ERROR;
 		}
-		sensor_info->subdev_id[SUB_MODULE_LED_FLASH] = val;
+		
+		if(is_project(15005))
+			sensor_info->subdev_id[SUB_MODULE_LED_FLASH] = get_flashlight_id();
+		else
+			sensor_info->subdev_id[SUB_MODULE_LED_FLASH] = val;
+		
 		of_node_put(src_node);
 		src_node = NULL;
 	}
@@ -964,16 +984,20 @@ int msm_camera_get_dt_vreg_data(struct device_node *of_node,
 	struct camera_vreg_t **cam_vreg, int *num_vreg)
 {
 	int rc = 0, i = 0;
-	uint32_t count = 0;
+	int32_t count = 0;
 	uint32_t *vreg_array = NULL;
 	struct camera_vreg_t *vreg = NULL;
 
 	count = of_property_count_strings(of_node, "qcom,cam-vreg-name");
 	CDBG("%s qcom,cam-vreg-name count %d\n", __func__, count);
-
+#ifndef VENDOR_EDIT
+/*oppo hufeng 20150308 modify to remove projece name*/
 	if (!count)
 		return 0;
-
+#else
+	if (count<=0)
+		return count;
+#endif
 	vreg = kzalloc(sizeof(*vreg) * count, GFP_KERNEL);
 	if (!vreg) {
 		pr_err("%s failed %d\n", __func__, __LINE__);

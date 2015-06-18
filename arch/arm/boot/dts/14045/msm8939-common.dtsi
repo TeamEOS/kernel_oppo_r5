@@ -625,7 +625,7 @@
 		compatible = "qcom,bimc-bwmon";
 		reg = <0x408000 0x300>, <0x401000 0x200>;
 		reg-names = "base", "global_base";
-		interrupts = <0 183 1>;
+		interrupts = <0 183 4>;
 		qcom,mport = <0>;
 		qcom,target-dev = <&cpubw>;
 	};
@@ -775,10 +775,11 @@
 		qcom,vdd-voltage-level = <1 5 7>;
 		
 		//#ifndef VENDOR_EDIT //dengnw@BSP.Driver, 2014-11-07, Modify for usb
-		//qcom,hsusb-otg-phy-init-seq =
-		//	<0x44 0x80 0x6B 0x81 0x24 0x82 0x13 0x83 0xffffffff>;
+		//qcom,hsusb-otg-phy-init-seq =<0x44 0x80 0x6B 0x81 0x24 0x82 0x13 0x83 0xffffffff>;
 		//#else /* VENDOR_EDIT */
-		qcom,hsusb-otg-phy-init-seq =<0x44 0x80 0x6D 0x81 0x31 0x82 0x13 0x83 0xffffffff>;
+		//qcom,hsusb-otg-phy-init-seq =<0x44 0x80 0x6D 0x81 0x31 0x82 0x13 0x83 0xffffffff>;
+		//qcom,hsusb-otg-phy-init-seq =<0x44 0x80 0x6B 0x81 0x24 0x82 0x13 0x83 0xffffffff>;
+		qcom,hsusb-otg-phy-init-seq =<0x74 0x80 0x6B 0x81 0x24 0x82 0x13 0x83 0xffffffff>;
 		//endif /* VENDOR_EDIT */
 		
 		qcom,hsusb-otg-phy-type = <2>;
@@ -801,14 +802,19 @@
 		qcom,msm-bus,num-paths = <1>;
 		qcom,msm-bus,vectors-KBps =
 				<87 512 0 0>,
-				<87 512 60000 960000>,
+				<87 512 80000 0>,
 				<87 512 6000  6000>;
 		clocks = <&clock_gcc clk_gcc_usb_hs_ahb_clk>,
 			 <&clock_gcc clk_gcc_usb_hs_system_clk>,
 			 <&clock_gcc clk_gcc_usb2a_phy_sleep_clk>,
+			 <&clock_rpm clk_bimc_usb_a_clk>,
+			 <&clock_rpm clk_snoc_usb_a_clk>,
+			 <&clock_rpm clk_pcnoc_usb_a_clk>,
 			 <&clock_rpm clk_xo_otg_clk>;
 		clock-names = "iface_clk", "core_clk", "sleep_clk",
+				"bimc_clk", "snoc_clk", "pcnoc_clk",
 				"xo";
+		qcom,bus-clk-rate = <331200000 200000000 100000000>;
 	};
 
 	android_usb: android_usb@086000c8 {
@@ -1748,12 +1754,9 @@
 };
 
 &gdsc_venus {
-	clock-names = "bus_clk", "core_clk",
-			"core0_clk", "core1_clk";
+	clock-names = "bus_clk", "core_clk";
 	clocks = <&clock_gcc clk_gcc_venus0_axi_clk>,
-		 <&clock_gcc clk_gcc_venus0_vcodec0_clk>,
-		 <&clock_gcc clk_gcc_venus0_core0_vcodec0_clk>,
-		 <&clock_gcc clk_gcc_venus0_core1_vcodec0_clk>;
+		 <&clock_gcc clk_gcc_venus0_vcodec0_clk>;
 	status = "okay";
 };
 
@@ -1792,10 +1795,16 @@
 };
 
 &gdsc_venus_core0 {
+	qcom,support-hw-trigger;
+	clock-names ="core0_clk";
+	clocks = <&clock_gcc clk_gcc_venus0_core0_vcodec0_clk>;
 	status = "okay";
 };
 
 &gdsc_venus_core1 {
+	qcom,support-hw-trigger;
+	clock-names ="core1_clk";
+	clocks = <&clock_gcc clk_gcc_venus0_core1_vcodec0_clk>;
 	status = "okay";
 };
 

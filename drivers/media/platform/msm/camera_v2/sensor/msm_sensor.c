@@ -32,17 +32,37 @@
 #ifdef VENDOR_EDIT
 /* xianglie.liu 2014-09-05 add for add project name */
 #include <mach/oppo_project.h> 
- unsigned char my_vcm_id =1;
-static unsigned char vcm_flag =1;
 #include <mach/device_info.h>
+
 #define DEVICE_VERSION_5648_SUNNY	"ov5648_sunny"
 #define DEVICE_VERSION_5648_TRULY	"ov5648_truly"
 #define DEVICE_MANUFACUTRE_5648	"OmniVision"
-/*hufeng 2014-10-15 add for 14005 devices information*/
-#define DEVICE_VERSION_IMX214	"imx214"
-#define DEVICE_VERSION_S5K5E2	 "s5k5e2 "
+
+#define DEVICE_VERSION_IMX179_LITEON	"imx179_liteon"
+#define DEVICE_VERSION_IMX179_SUNNY	 "imx179_sunny"
+#define DEVICE_MANUFACUTRE_IMX179_N	"Sony"
+
+#define DEVICE_VERSION_S5K5E2		"s5k5e2"
+#define DEVICE_MANUFACUTRE_S5K5E2	"Samsung"
+
+#define DEVICE_VERSION_S5K3M2_SUNNY		"s5k3m2_sunny"
+#define DEVICE_VERSION_S5K3M2_SEMCO		"s5k3m2_semco"
+#define DEVICE_MANUFACUTRE_S5K3M2	"Samsung"
+
+#define DEVICE_VERSION_OV8858		"ov8858"
+#define DEVICE_MANUFACUTRE_OV8858	"OmniVision"
+
+#define DEVICE_VERSION_IMX214_SUNNY		"imx214_sunny"
+#define DEVICE_VERSION_IMX214_TRULY		"imx214_truly"
+#define DEVICE_VERSION_IMX214_SEMCO		"imx214_semco"
+#define DEVICE_VERSION_IMX214		"imx214"
 #define DEVICE_MANUFACUTRE_IMX214	"Sony"
-#define DEVICE_MANUFACUTRE_S5K5E2	"SAMSUNG"
+
+unsigned char my_vcm_id =1;
+unsigned char my_sensor_vendor_id =1;
+bool openloop_flag = false;
+static uint8_t deviceInfo_register_value = 0x00; /*low 4 bit represent front,high 4 bit is back*/
+extern uint16_t s5k3m2_module;
 #endif
 
 #ifdef VENDOR_EDIT
@@ -468,6 +488,13 @@ int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 	}
 	#endif /*VENDOR_EDIT*/
 	
+#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015/03/11 add for 15005 thermal issue
+	if(is_project(OPPO_15005)){
+		opchg_check_camera_off();
+	}
+#endif
+
 	return msm_camera_power_down(power_info, sensor_device_type,
 		sensor_i2c_client);
 }
@@ -526,10 +553,79 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 		opchg_check_camera_on();
 	}
 	#endif /*VENDOR_EDIT*/
+
+#ifdef VENDOR_EDIT
+//Fuchun.Liao@Mobile.BSP.CHG 2015/03/11 add for 15005 thermal issue
+	if(is_project(OPPO_15005)){
+		opchg_check_camera_on();
+	}
+#endif
 	return rc;
 }
 
 #ifdef VENDOR_EDIT
+/* xianglie.liu 2014-12-1 Add for vendor_sensor Compatible */
+static void get_sensor_vendor_ID(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	uint16_t flag;
+	int32_t rc = 0;
+
+	if ((deviceInfo_register_value >> 4 & 0xF) == 0x1) {
+		pr_err("%s: already register\n", __func__);
+		return;
+	}
+
+	mdelay(5);
+	rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+		s_ctrl->sensor_i2c_client,
+		0x3380,
+		0x00, MSM_CAMERA_I2C_BYTE_DATA);
+	mdelay(1);
+	rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+		s_ctrl->sensor_i2c_client,
+		0x3400,
+		0x01, MSM_CAMERA_I2C_BYTE_DATA);
+	mdelay(1);
+	rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+		s_ctrl->sensor_i2c_client,
+		0x3402,
+		0x01, MSM_CAMERA_I2C_BYTE_DATA);
+	mdelay(5);
+
+	rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(
+		s_ctrl->sensor_i2c_client,
+		0x340A,
+		&flag, MSM_CAMERA_I2C_BYTE_DATA);
+	if (rc < 0) {
+		pr_err("%s: %s: imx179 read vendor id failed\n", __func__,
+			s_ctrl->sensordata->sensor_name);
+	}
+
+	pr_err("sensor vendor info :0x340A:id =%d\n", flag);
+
+	if ((flag&0x0f) == 0x02)
+	{
+		my_sensor_vendor_id = 2;
+	}
+	else
+	{
+		my_sensor_vendor_id = 1;
+	}
+
+	if (1 == my_sensor_vendor_id)
+	{
+		register_device_proc("r_camera", DEVICE_VERSION_IMX179_SUNNY, DEVICE_MANUFACUTRE_IMX179_N);
+		deviceInfo_register_value = 0x10;
+	}
+	else if(2 == my_sensor_vendor_id)
+	{
+		register_device_proc("r_camera", DEVICE_VERSION_IMX179_LITEON, DEVICE_MANUFACUTRE_IMX179_N);
+		deviceInfo_register_value = 0x10;
+	} else {
+		register_device_proc("r_camera", DEVICE_VERSION_IMX179_SUNNY, DEVICE_MANUFACUTRE_IMX179_N);
+		deviceInfo_register_value = 0x10;
+	}
+}
 /* xianglie.liu 2014-09-12 Add for actutor Compatible */
 static void get_vcm_ID(struct msm_sensor_ctrl_t *s_ctrl)
 { 
@@ -537,11 +633,12 @@ static void get_vcm_ID(struct msm_sensor_ctrl_t *s_ctrl)
 	int i;
 	int32_t rc = 0;
 
-	if(vcm_flag >1) return;
-#ifdef VENDOR_EDIT
-/* xianglie.liu 2014-09-27 Add for actutor Compatible */
+	if ((deviceInfo_register_value >> 4 & 0xF) == 0x1) {
+		pr_err("%s: already register\n", __func__);
+		return;
+	}
+    
 	if(strcmp(s_ctrl->sensordata->sensor_name, "ov5648_back"))return;
-#endif
 	 
 	rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
 		s_ctrl->sensor_i2c_client,
@@ -620,16 +717,16 @@ static void get_vcm_ID(struct msm_sensor_ctrl_t *s_ctrl)
 	{	  
 		for( i=0;i<16;i++)	
 		{
-       	rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
-       		s_ctrl->sensor_i2c_client,
-       		0x3d00+i,
-       		0x00, MSM_CAMERA_I2C_BYTE_DATA);
-       	if (rc < 0) {
-       		pr_err("%s: %s: ov5648_back write5 failed\n", __func__,
-       			s_ctrl->sensordata->sensor_name);
-       	}
+			rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+				s_ctrl->sensor_i2c_client,
+				0x3d00+i,
+				0x00, MSM_CAMERA_I2C_BYTE_DATA);
+			if (rc < 0) {
+				pr_err("%s: %s: ov5648_back write5 failed\n", __func__,
+				s_ctrl->sensordata->sensor_name);
+			}
 		}
-	   my_vcm_id = 2;
+		my_vcm_id = 2;
 	}
 	else if((!(flag&0x80)) && ((flag&0x7f) == 0x01)) 
 	{
@@ -753,14 +850,153 @@ static void get_vcm_ID(struct msm_sensor_ctrl_t *s_ctrl)
 	}	
 	if(1 == my_vcm_id)
    	{
-   		register_device_proc("r_camera", DEVICE_VERSION_5648_SUNNY, DEVICE_MANUFACUTRE_5648);
-		vcm_flag ++;
+		register_device_proc("r_camera", DEVICE_VERSION_5648_SUNNY, DEVICE_MANUFACUTRE_5648);
+		deviceInfo_register_value = 0x10;
 	}
 	else if(2 == my_vcm_id)
 	{
 		register_device_proc("r_camera", DEVICE_VERSION_5648_TRULY, DEVICE_MANUFACUTRE_5648);
-		vcm_flag++;
+		deviceInfo_register_value = 0x10;
+	} else {
+		register_device_proc("r_camera", DEVICE_VERSION_5648_SUNNY, DEVICE_MANUFACUTRE_5648);
+		deviceInfo_register_value = 0x10;
 	}
+}
+
+/* zhengrong.zhang 2014-12-28 Add for 14045 module Compatible */
+static int get_14045_vendor_info(struct msm_sensor_ctrl_t *s_ctrl)
+{
+    int rc = 0;
+    uint16_t chipid = 0;
+    struct msm_camera_i2c_client *sensor_i2c_client;
+
+    sensor_i2c_client = s_ctrl->sensor_i2c_client;
+
+    if ((deviceInfo_register_value >> 4 & 0xF) == 0x1) {
+        pr_err("%s: already register\n", __func__);
+        return rc;
+    }
+
+    if (s_ctrl->sensordata->slave_info->sensor_id == 0x214) {
+        int i;
+        for (i=0;i<3;i++) {
+            //read otp
+            //set nvm page
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+                           		s_ctrl->sensor_i2c_client,
+                           		0x0A02,
+                           		i, MSM_CAMERA_I2C_BYTE_DATA);
+            if (rc < 0) {
+                pr_err("%s: write 0x0a02 failed\n", __func__);
+                return rc;
+            }
+            
+            //set read mode
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_write(
+                           		s_ctrl->sensor_i2c_client,
+                           		0x0A00,
+                           		0x01, MSM_CAMERA_I2C_BYTE_DATA);
+            if (rc < 0) {
+                pr_err("%s: write 0x0a00 failed\n", __func__);
+                return rc;
+            }
+
+            //read NVM status register,
+            //0x0 progress; 0x1 completed; 0x5 failed
+            rc = sensor_i2c_client->i2c_func_tbl->i2c_read(
+        		sensor_i2c_client, 0x0A01,
+        		&chipid, MSM_CAMERA_I2C_BYTE_DATA);
+            if (rc < 0) {
+                pr_err("%s: read 0x0A01 failed\n", __func__);
+                return rc;
+            }
+            pr_err("%s: read  0x0A01 id: 0x%x\n", __func__, chipid);
+
+            if (0x01 == chipid) {       
+                //read module ID
+                rc = sensor_i2c_client->i2c_func_tbl->i2c_read(
+            		sensor_i2c_client, 0x0A0A,
+            		&chipid, MSM_CAMERA_I2C_BYTE_DATA);
+                if (rc < 0) {
+            		pr_err("%s: read module id failed\n", __func__);
+            		return rc;
+                }
+                pr_err("%s: read page[%d] module id: 0x%x\n", __func__, i, chipid);
+
+                if (0x01 == chipid || 0x02 == chipid || 0x03 == chipid)
+                    break;
+            }
+        }
+
+        if (0x01 == chipid) {
+            register_device_proc("r_camera", DEVICE_VERSION_IMX214_SUNNY, DEVICE_MANUFACUTRE_IMX214);
+            openloop_flag = true;
+            deviceInfo_register_value = 0x10;
+        } else if (0x02 == chipid) {
+            register_device_proc("r_camera", DEVICE_VERSION_IMX214_TRULY, DEVICE_MANUFACUTRE_IMX214);
+            openloop_flag = false;
+            deviceInfo_register_value = 0x10;
+        } else if (0x03 == chipid) {
+            register_device_proc("r_camera", DEVICE_VERSION_IMX214_SEMCO, DEVICE_MANUFACUTRE_IMX214);
+            openloop_flag = false;
+            deviceInfo_register_value = 0x10;
+        } else {
+            register_device_proc("r_camera", DEVICE_VERSION_IMX214, DEVICE_MANUFACUTRE_IMX214);
+            openloop_flag = false;
+            deviceInfo_register_value = 0x10;
+        }
+    }
+
+    return rc;
+
+}
+
+static void register_device_info(struct msm_sensor_ctrl_t *s_ctrl)
+{
+    //front camera
+    if ((strcmp(s_ctrl->sensordata->sensor_name, "ov5648_front") == 0 ||
+        strcmp(s_ctrl->sensordata->sensor_name, "s5k5e2_front") == 0 ||
+        strcmp(s_ctrl->sensordata->sensor_name, "ov8858_front") == 0) &&
+        ((deviceInfo_register_value & 0xF) == 0x1)) {
+        pr_err("%s: front device info already register\n", __func__);
+        return;
+    } else {
+        if (strcmp(s_ctrl->sensordata->sensor_name, "ov5648_front") == 0) {
+            //pr_err("%s %d: device info register\n", __func__, __LINE__);
+            register_device_proc("f_camera", DEVICE_VERSION_5648_SUNNY, DEVICE_MANUFACUTRE_5648);
+            deviceInfo_register_value = 0x1;
+            return;
+        }
+        else if (strcmp(s_ctrl->sensordata->sensor_name, "s5k5e2_front") == 0) {
+            //pr_err("%s %d: device infor egister\n", __func__, __LINE__);
+            register_device_proc("f_camera", DEVICE_VERSION_S5K5E2, DEVICE_MANUFACUTRE_S5K5E2);
+            deviceInfo_register_value = 0x1;
+            return;
+        }
+        else if (strcmp(s_ctrl->sensordata->sensor_name, "ov8858_front") == 0) {
+            //pr_err("%s %d: device info register\n", __func__, __LINE__);
+            register_device_proc("f_camera", DEVICE_VERSION_OV8858, DEVICE_MANUFACUTRE_OV8858);
+            deviceInfo_register_value = 0x1;
+            return;
+        }
+    }
+
+    //back camera
+    if ((strcmp(s_ctrl->sensordata->sensor_name, "s5k3m2") == 0) &&
+        ((deviceInfo_register_value >> 4 & 0xF) == 0x1)) {
+        pr_err("%s: back device info already register\n", __func__);
+        return;
+    } else {
+        if (strcmp(s_ctrl->sensordata->sensor_name, "s5k3m2") == 0) {
+            if (s5k3m2_module == 0x1)
+                register_device_proc("r_camera", DEVICE_VERSION_S5K3M2_SUNNY, DEVICE_MANUFACUTRE_S5K3M2);
+            else
+                register_device_proc("r_camera", DEVICE_VERSION_S5K3M2_SEMCO, DEVICE_MANUFACUTRE_S5K3M2);
+
+            deviceInfo_register_value = 0x10;
+            return;
+        }
+    }
 }
 #endif
 EXPORT_SYMBOL(my_vcm_id);
@@ -804,18 +1040,22 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 	}
 #ifdef VENDOR_EDIT
 /* xianglie.liu 2014-09-12 Add for actutor Compatible */
-	if(is_project(OPPO_14043))
+	if (strcmp(s_ctrl->sensordata->sensor_name, "ov5648_back") == 0)
 	{
 		get_vcm_ID(s_ctrl); 
 	}
-/*hufeng 2014-10-15 add for 14005 devices information*/
-#if 0
-	if(is_project(OPPO_14005)||is_project(OPPO_14006))
+	if (strcmp(s_ctrl->sensordata->sensor_name, "imx179") == 0)
 	{
-		register_device_proc("r_camera", DEVICE_VERSION_IMX214, DEVICE_MANUFACUTRE_IMX214);
-		register_device_proc("f_camera", DEVICE_VERSION_S5K5E2, DEVICE_MANUFACUTRE_S5K5E2);
+		get_sensor_vendor_ID(s_ctrl);
 	}
-#endif
+    
+/* zhengrong.zhang 2014-12-28 Add for 14045 module Compatible */
+	if (strcmp(s_ctrl->sensordata->sensor_name, "imx214") == 0)
+	{
+		get_14045_vendor_info(s_ctrl);
+	}
+
+	register_device_info(s_ctrl);
 #endif
 	return rc;
 }
@@ -1512,6 +1752,10 @@ int32_t msm_sensor_platform_probe(struct platform_device *pdev,
 		s_ctrl->sensordata->slave_info->sensor_slave_addr >> 1;
 	cci_client->retries = 3;
 	cci_client->id_map = 0;
+#ifdef VENDOR_EDIT
+/* xianglie.liu 2015-01-20 add for modify yuv sensor cci clock to fastmode */
+	cci_client->i2c_freq_mode = 1;
+#endif
 	if (!s_ctrl->func_tbl)
 		s_ctrl->func_tbl = &msm_sensor_func_tbl;
 	if (!s_ctrl->sensor_i2c_client->i2c_func_tbl)

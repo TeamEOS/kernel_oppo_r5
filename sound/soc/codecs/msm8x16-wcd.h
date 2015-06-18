@@ -50,6 +50,12 @@
 
 extern const u8 msm8x16_wcd_reg_readable[MSM8X16_WCD_CACHE_SIZE];
 extern const u8 msm8x16_wcd_reg_readonly[MSM8X16_WCD_CACHE_SIZE];
+#ifdef VENDOR_EDIT
+//John.Xu@PhoneSw.AudioDriver, 2015/02/10, Add for 14037 pmic special patch
+//merged John.Xu@PhoneSw.AudioDriver, 2014/12/20, Add for Qcom pmic patch
+//Use internal boost for external speaker PA
+extern const u8 msm8x16_wcd_reg_readonly_14037[MSM8X16_WCD_CACHE_SIZE];
+#endif /* VENDOR_EDIT */
 extern const u8 msm8x16_wcd_reset_reg_defaults[MSM8X16_WCD_CACHE_SIZE];
 
 enum msm8x16_wcd_pid_current {
@@ -169,11 +175,10 @@ struct msm8916_asoc_mach_data {
 	/*xiang.fei@Multimedia, 2014/09/10, Add for yda145*/
     int spk_pa_en;
 	/*xiang.fei@Multimedia, 2014/09/10, Add end*/
-    /*xiang.fei@Multimedia, 2014/09/19, Add for compatible audio*/
-	int pcb_ver_flag0; 
-	int pcb_ver_flag1;
-	int pcb_ver_flag2;
-	/*xiang.fei@Multimedia, 2014/09/19, Add end*/
+	#ifdef VENDOR_EDIT
+	//John.Xu@PhoneSw.AudioDriver, 2015/01/09, Add for 15005 yda145 boost
+    int yda145_boost_en;
+	#endif /* VENDOR_EDIT */
 };
 
 struct msm8x16_wcd_pdata {
@@ -210,6 +215,13 @@ struct msm8x16_wcd {
 	int num_irqs;
 	u32 mclk_rate;
 	char __iomem *dig_base;
+
+	/*xiang.fei@Multimedia, 2014/09/19, Add for compatible audio*/
+	int pcb_ver_flag0;
+	int pcb_ver_flag1;
+	int pcb_ver_flag2;
+	char pcb_ver_string[10]; //add by John.Xu for pcb_ver used in codec
+	/*xiang.fei@Multimedia, 2014/09/19, Add end*/
 };
 
 struct on_demand_supply {
@@ -230,6 +242,10 @@ struct msm8x16_wcd_priv {
 	bool mclk_enabled;
 	bool clock_active;
 	bool config_mode_active;
+	#ifdef VENDOR_EDIT
+	//John.Xu@PhoneSw.AudioDriver, 2015/02/11, Add for CR 787385
+    u16 boost_option;
+	#endif /* VENDOR_EDIT */
 	bool spk_boost_set;
 	bool ear_pa_boost_set;
 	bool dec_active[NUM_DECIMATORS];

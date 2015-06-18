@@ -1418,5 +1418,19 @@
 				bias-pull-down;
 			};
 		};
+		hall_int_pin {
+                        qcom,pins = <&gp 121>;
+                        qcom,pin-func = <0>;
+                        qcom,num-grp-pins = <1>;
+			label = "hall-irq";
+                        hall_irq_default: hall_irq_default {
+                                drive-strength = <6>;
+                                bias-pull-up;
+                        };
+                        hall_irq_sleep: hall_irq_sleep {
+                                drive-strength = <6>;
+                                bias-pull-up;
+                        };
+                };
 	};
 };

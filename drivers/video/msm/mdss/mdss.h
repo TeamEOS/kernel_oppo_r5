@@ -141,6 +141,7 @@ struct mdss_data_type {
 	bool has_src_split;
 	bool idle_pc_enabled;
 	bool has_dst_split;
+	bool needs_hist_vote;
 
 	u32 rotator_ot_limit;
 	u32 mdp_irq_mask;
@@ -171,13 +172,12 @@ struct mdss_data_type {
 	u32 *vbif_nrt_qos;
 	u32 npriority_lvl;
 
+	u32 reg_bus_hdl;
+
 	struct mdss_fudge_factor ab_factor;
 	struct mdss_fudge_factor ib_factor;
 	struct mdss_fudge_factor ib_factor_overlap;
-#ifdef VENDOR_EDIT
-/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/09/22  Add for 14005 performance */
 	struct mdss_fudge_factor ib_factor_cmd;
-#endif /*VENDOR_EDIT*/
 	struct mdss_fudge_factor clk_factor;
 
 	u32 *clock_levels;
@@ -208,7 +208,6 @@ struct mdss_data_type {
 	void *video_intf;
 	u32 nintf;
 
-	u32 pp_bus_hdl;
 	struct mdss_mdp_ad *ad_off;
 	struct mdss_ad_info *ad_cfgs;
 	u32 nad_cfgs;

@@ -67,7 +67,6 @@ struct vmalloc_info {
 extern void get_vmalloc_info(struct vmalloc_info *vmi);
 #endif
 
-
 /* OPPO 2012-10-11 chendx Delete begin for debugtools Todo */
 #if 0
 extern unsigned reboot_reason;
@@ -106,7 +105,7 @@ void tasks_mem_get(struct mm_struct *mm, unsigned long *vsize, unsigned long *vr
 	if (hiwater_rss < mm->hiwater_rss)
 		hiwater_rss = mm->hiwater_rss;
 
-	*vsize = (total_vm - mm->reserved_vm) << (PAGE_SHIFT-10);
+	*vsize = total_vm << (PAGE_SHIFT-10);
 	*vrss = total_rss << (PAGE_SHIFT-10);
 }
 
@@ -193,7 +192,7 @@ void meminfo_test_saved(void)
 		* sysctl_overcommit_ratio / 100) + total_swap_pages;
 
 	cached = global_page_state(NR_FILE_PAGES) -
-			total_swapcache_pages - i.bufferram;
+			total_swapcache_pages() - i.bufferram;
 	if (cached < 0)
 		cached = 0;
 
@@ -259,7 +258,7 @@ void meminfo_test_saved(void)
 		K(i.freeram),
 		K(i.bufferram),
 		K(cached),
-		K(total_swapcache_pages),
+		K(total_swapcache_pages()),
 		K(pages[LRU_ACTIVE_ANON]   + pages[LRU_ACTIVE_FILE]),
 		K(pages[LRU_INACTIVE_ANON] + pages[LRU_INACTIVE_FILE]),
 		K(pages[LRU_ACTIVE_ANON]),

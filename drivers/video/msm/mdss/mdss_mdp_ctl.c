@@ -27,12 +27,6 @@
 #include "mdss_mdp_trace.h"
 #include "mdss_debug.h"
 
-#ifdef VENDOR_EDIT
-/* Xinqin.Yang@PhoneSW.Multimedia, 2014/08/19  Add for 14023 project */
-#include <mach/oppo_project.h>
-#endif /*CONFIG_VENDOR_EDIT*/
-
-
 static void mdss_mdp_xlog_mixer_reg(struct mdss_mdp_ctl *ctl);
 static inline u64 fudge_factor(u64 val, u32 numer, u32 denom)
 {
@@ -543,9 +537,10 @@ int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 	else
 		perf->mdp_clk_rate = rate;
 
-	if (mixer->ctl->intf_num == MDSS_MDP_NO_INTF) {
+	if ((mixer->ctl->intf_num == MDSS_MDP_NO_INTF) ||
+		(pipe->flags & MDP_SOLID_FILL) || (!pipe->has_buf)) {
 		perf->prefill_bytes = 0;
-		return 0;
+		goto exit;
 	}
 
 	prefill_params.smp_bytes = mdss_mdp_perf_calc_smp_size(pipe,
@@ -576,6 +571,8 @@ int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 		perf->prefill_bytes =
 			mdss_mdp_perf_calc_pipe_prefill_cmd(&prefill_params);
 
+
+exit:
 	pr_debug("mixer=%d pnum=%d clk_rate=%u bw_overlap=%llu prefill=%d\n",
 		 mixer->num, pipe->num, perf->mdp_clk_rate, perf->bw_overlap,
 		 perf->prefill_bytes);
@@ -943,12 +940,9 @@ static void mdss_mdp_perf_calc_ctl(struct mdss_mdp_ctl *ctl,
 		else
 			perf->bw_ctl = apply_fudge_factor(perf->bw_ctl,
 				&mdss_res->ib_factor);
-#ifdef VENDOR_EDIT
-/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/09/22  Add for 14005 performance */
 	} else if (ctl->intf_num != MDSS_MDP_NO_INTF) {
 		perf->bw_ctl = apply_fudge_factor(perf->bw_ctl,
-			&mdss_res->ib_factor_cmd);
-#endif /*VENDOR_EDIT*/
+				&mdss_res->ib_factor_cmd);
 	}
 	pr_debug("ctl=%d clk_rate=%u\n", ctl->num, perf->mdp_clk_rate);
 	pr_debug("bw_overlap=%llu bw_prefill=%llu prefill_bytes=%d\n",
@@ -1121,15 +1115,6 @@ static inline void mdss_mdp_ctl_perf_update_bus(struct mdss_data_type *mdata,
 				ctl->cur_perf.bw_ctl);
 		}
 	}
-	
-#ifndef VENDOR_EDIT
-	//TODO:FIX-ME: set the min bandwidth of BIMC when MDP request, this can reduce wait_pingpong time consumption. 
-	/* wenhua.Leng@PhoneSW.Multimedia, 2014/09/04  a workround to resolve the performace issue */
-	if(is_project(OPPO_14005)){
-		mdata->perf_tune.min_bus_vote = 16000000000ll;
-	}
-#endif /*CONFIG_VENDOR_EDIT*/
-	
 	bw_sum_of_intfs_rt = max(bw_sum_of_intfs_rt,
 			mdata->perf_tune.min_bus_vote);
 	bus_ib_quota = bw_sum_of_intfs_rt + bw_sum_of_intfs_nrt;

@@ -59,11 +59,6 @@
 #include <asm/pgtable.h>
 #include <asm/mmu_context.h>
 
-#ifdef CONFIG_ENHANCED_LMK
-extern struct mutex hlist_lock;
-extern int remove_task_hlist(const struct task_struct *task);
-#endif
-
 static void exit_mm(struct task_struct * tsk);
 
 static void __unhash_process(struct task_struct *p, bool group_dead)
@@ -793,11 +788,8 @@ void do_exit(long code)
 
 	exit_signals(tsk);  /* sets PF_EXITING */
 
-#ifdef CONFIG_ENHANCED_LMK
-	mutex_lock(&hlist_lock);
-	remove_task_hlist(tsk);
-	mutex_unlock(&hlist_lock);
-#endif
+	sched_exit(tsk);
+
 	/*
 	 * tsk->flags are checked in the futex code to protect against
 	 * an exiting task cleaning up the robust pi futexes.

@@ -80,6 +80,9 @@ static int fast_chg_current[] = {
 #define VARIOUS_FUNC_REG                        0x02
 #define VARIOUS_FUNC_USB_SUSP_MASK              BIT(6)
 #define VARIOUS_FUNC_USB_SUSP_EN_REG_BIT        BIT(6)
+#define AICL_EN_MASK							BIT(4)
+#define AICL_EN_BIT								BIT(4)
+#define AICL_DISEN_BIT							0x00
 
 #define VFLOAT_REG                              0x03
 #define VFLOAT_MASK                             (BIT(5) | BIT(4) | BIT(3) | BIT(2) | BIT(1) | BIT(0))//0x3F
@@ -264,6 +267,11 @@ OPPO_SMB358_EXT int smb358_get_charging_status(struct opchg_charger *chip);
 OPPO_SMB358_EXT int smb358_set_otg_regulator_enable(struct regulator_dev *rdev);
 OPPO_SMB358_EXT int smb358_set_otg_regulator_disable(struct regulator_dev *rdev);
 OPPO_SMB358_EXT int smb358_get_otg_regulator_is_enable(struct regulator_dev *rdev);
+#if 1
+OPPO_SMB358_EXT int smb358_set_otg_enable(void);
+OPPO_SMB358_EXT int smb358_set_otg_disable(void);
+OPPO_SMB358_EXT int smb358_get_otg_enable(void);
+#endif
 OPPO_SMB358_EXT int smb358_set_charging_disable(struct opchg_charger *chip, bool disable);
 OPPO_SMB358_EXT int smb358_set_suspend_enable(struct opchg_charger *chip, bool enable);
 OPPO_SMB358_EXT int smb358_set_enable_volatile_writes(struct opchg_charger *chip);

@@ -13,7 +13,7 @@
 *******************************************************************************/
 
 #define OPPO_CHARGER_PAR
-#include <oppo_inc.h>
+#include "oppo_inc.h"
 
 
 static int __opchg_read_reg(struct opchg_charger *chip, u8 reg, u8 *val)
@@ -88,15 +88,119 @@ out:
 	return rc;
 }
 
-int opchg_set_otg_regulator_enable(struct regulator_dev *rdev)
+#if 1
+int opchg_set_otg_enable(void)
 {
-    int rc;
+    int rc=0;
 
-    if (chip_opchg->suspending) {
+	if(opchg_chip == NULL)
+	{
 		return rc;
 	}
 	
-	switch (chip_opchg->driver_id) {
+    if (opchg_chip->suspending) {
+		return rc;
+	}
+	
+	switch (opchg_chip->driver_id) {
+    case OPCHG_SMB358_ID:
+        rc = smb358_set_otg_enable();
+        break;
+        
+	case OPCHG_SMB1357_ID:
+		rc=0;
+		//rc = smb1357_set_otg_regulator_enable(rdev);
+		break;
+		
+	case OPCHG_BQ24196_ID:
+		rc = bq24196_set_otg_enable();
+		break;
+		
+    default:
+        break;
+    }
+
+    return rc;
+}
+
+int opchg_set_otg_disable(void)
+{
+    int rc = 0;
+	
+    if(opchg_chip == NULL)
+	{
+		return rc;
+	}    
+
+	if (opchg_chip->suspending) {
+		return rc;
+	}
+	
+	switch (opchg_chip->driver_id) {
+    case OPCHG_SMB358_ID:
+        rc = smb358_set_otg_disable();
+        break;
+        
+	case OPCHG_SMB1357_ID:
+		rc=0;
+		//rc = smb1357_set_otg_regulator_disable(rdev);
+		break;
+		
+	case OPCHG_BQ24196_ID:
+		rc = bq24196_set_otg_disable();
+		break;
+		
+    default:
+        break;
+    }
+
+    return rc;
+}
+
+int opchg_get_otg_enable(void)
+{
+    int rc = 0;
+
+	if(opchg_chip == NULL)
+	{
+		return rc;
+	}
+
+	if (opchg_chip->suspending) {
+		return rc;
+	}
+	
+	switch (opchg_chip->driver_id) {
+    case OPCHG_SMB358_ID:
+        rc = smb358_get_otg_enable();
+        break;
+        
+	case OPCHG_SMB1357_ID:
+		rc=0;
+		//rc = smb1357_get_otg_enable();
+		break;
+		
+	case OPCHG_BQ24196_ID:
+		rc = bq24196_get_otg_enable();
+		break;
+		
+    default:
+        break;
+    }
+
+    return rc;
+}
+#endif
+
+int opchg_set_otg_regulator_enable(struct regulator_dev *rdev)
+{
+    int rc=0;
+
+    if (opchg_chip->suspending) {
+		return rc;
+	}
+	
+	switch (opchg_chip->driver_id) {
     case OPCHG_SMB358_ID:
         rc = smb358_set_otg_regulator_enable(rdev);
         break;
@@ -119,13 +223,13 @@ int opchg_set_otg_regulator_enable(struct regulator_dev *rdev)
 
 int opchg_set_otg_regulator_disable(struct regulator_dev *rdev)
 {
-    int rc;
+    int rc=0;
 
-    if (chip_opchg->suspending) {
+    if (opchg_chip->suspending) {
 		return rc;
 	}
 	
-	switch (chip_opchg->driver_id) {
+	switch (opchg_chip->driver_id) {
     case OPCHG_SMB358_ID:
         rc = smb358_set_otg_regulator_disable(rdev);
         break;
@@ -148,13 +252,13 @@ int opchg_set_otg_regulator_disable(struct regulator_dev *rdev)
 
 int opchg_get_otg_regulator_is_enable(struct regulator_dev *rdev)
 {
-    int rc;
+    int rc=0;
 
-    if (chip_opchg->suspending) {
+    if (opchg_chip->suspending) {
 		return rc;
 	}
 	
-	switch (chip_opchg->driver_id) {
+	switch (opchg_chip->driver_id) {
     case OPCHG_SMB358_ID:
         rc = smb358_get_otg_regulator_is_enable(rdev);
         break;
@@ -211,12 +315,14 @@ int opchg_regulator_init(struct opchg_charger *chip)
 
 		#if 1
 		chip->otg_vreg.rdev = regulator_register(&chip->otg_vreg.rdesc, &cfg);
+		dev_err(chip->dev, "oppo_debug OTG set vbus \n");
 		#else	
 		chip->otg_vreg.rdev = regulator_register(
 						    &chip->otg_vreg.rdesc, cfg.dev,
 						    cfg.init_data, cfg.driver_data,
 						    cfg.of_node);
 		#endif
+		
 		if (IS_ERR(chip->otg_vreg.rdev)) {
 			rc = PTR_ERR(chip->otg_vreg.rdev);
 			chip->otg_vreg.rdev = NULL;
@@ -316,15 +422,27 @@ void opchg_get_charging_status(struct opchg_charger *chip)
 
 int opchg_get_prop_batt_status(struct opchg_charger *chip)
 {
-    if (chip->suspending) {
+    if (chip->suspending)
 		return POWER_SUPPLY_STATUS_UNKNOWN;
-	}
-	
-	if (chip->batt_full) {
-        chip->bat_status = POWER_SUPPLY_STATUS_FULL;
-        return chip->bat_status;
-	}
-	else if (chip->batt_pre_full) {
+
+	if(chip->batt_full){	
+		#if 0
+		if((chip->batt_authen) && (opchg_battery_temp_region_get(chip) == CV_BATTERY_TEMP_REGION__NORMAL
+			|| opchg_battery_temp_region_get(chip) == CV_BATTERY_TEMP_REGION__LITTLE_COOL))
+		#else
+		if((chip->batt_authen) && ((chip->charging_opchg_temp_statu == OPCHG_CHG_TEMP_NORMAL)
+			|| (chip->charging_opchg_temp_statu  == OPCHG_CHG_TEMP_PRE_NORMAL)))
+		#endif
+		{
+			if(chip->bat_volt_check_point >= 100)
+				chip->bat_status = POWER_SUPPLY_STATUS_FULL;
+			else
+				chip->bat_status = POWER_SUPPLY_STATUS_CHARGING;
+		} else {
+			chip->bat_status = POWER_SUPPLY_STATUS_FULL;
+		}
+		return chip->bat_status;
+	} else if(chip->batt_pre_full){
         chip->bat_status = POWER_SUPPLY_STATUS_CHARGING;
         return chip->bat_status;
 	}
@@ -347,7 +465,7 @@ int opchg_get_prop_batt_status(struct opchg_charger *chip)
     }
 
 #ifdef OPPO_USE_FAST_CHARGER
-	if(is_project(OPPO_14005)||is_project(OPPO_14023))
+	if(is_project(OPPO_14005)||is_project(OPPO_14023)||is_project(OPPO_15011)||is_project(OPPO_15018))
 	{
 		if(opchg_get_prop_fast_chg_started(chip) == true)
 			chip->bat_status = POWER_SUPPLY_STATUS_CHARGING;

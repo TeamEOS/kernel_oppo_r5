@@ -17,12 +17,13 @@
 
 enum {
     OPCHG_CHG_TEMP_PRESENT = 0,
-    OPCHG_CHG_TEMP_COLD,
-    OPCHG_CHG_TEMP_COOL,
-    OPCHG_CHG_TEMP_PRE_COOL,
-    OPCHG_CHG_TEMP_NORMAL,
-    OPCHG_CHG_TEMP_WARM,
-    OPCHG_CHG_TEMP_HOT,
+    OPCHG_CHG_TEMP_COLD,			//	t< -10
+    OPCHG_CHG_TEMP_COOL,			//	-10< t <0
+    OPCHG_CHG_TEMP_PRE_COOL,		//	0< t <10
+    OPCHG_CHG_TEMP_PRE_NORMAL,	//	10< t <20
+    OPCHG_CHG_TEMP_NORMAL,		//	20< t <45
+    OPCHG_CHG_TEMP_WARM,			//	45< t <55
+    OPCHG_CHG_TEMP_HOT,			//	>55
 };
 
 typedef enum   
@@ -30,19 +31,19 @@ typedef enum
 	/*! Battery is absent               */
     CV_BATTERY_TEMP_REGION__ABSENT,
     /*! Battery is cold               */
-    CV_BATTERY_TEMP_REGION__COLD,
-    /*! Battery is little cold               */
-    CV_BATTERY_TEMP_REGION__LITTLE_COLD,
+    CV_BATTERY_TEMP_REGION__COLD,		//	t< -10
+    /*! Battery is little cold        */
+    CV_BATTERY_TEMP_REGION__LITTLE_COLD,//	-10< t <0
     /*! Battery is cool              */
-    CV_BATTERY_TEMP_REGION__COOL,
+    CV_BATTERY_TEMP_REGION__COOL,		//	0< t <10
     /*! Battery is cool               */
-    CV_BATTERY_TEMP_REGION__LITTLE_COOL,
+    CV_BATTERY_TEMP_REGION__LITTLE_COOL,	//	10< t <20
     /*! Battery is normal             */
-    CV_BATTERY_TEMP_REGION__NORMAL,
+    CV_BATTERY_TEMP_REGION__NORMAL,		//	20< t <45
     /*! Battery is warm               */
-    CV_BATTERY_TEMP_REGION__WARM,
+    CV_BATTERY_TEMP_REGION__WARM,		//	45< t <55
     /*! Battery is hot                */
-    CV_BATTERY_TEMP_REGION__HOT,
+    CV_BATTERY_TEMP_REGION__HOT,		//	>55
     /*! Invalid battery temp region   */
     CV_BATTERY_TEMP_REGION__INVALID,
 } chg_cv_battery_temp_region_type;
@@ -101,9 +102,10 @@ enum {
 enum {
     CHARGER_RESET_BY_TEMP_COOL      = BIT(0),
     CHARGER_RESET_BY_TEMP_PRE_COOL  = BIT(1),
-    CHARGER_RESET_BY_TEMP_NORMAL    = BIT(2),
-    CHARGER_RESET_BY_TEMP_WARM      = BIT(3),
-    CHARGER_RESET_BY_VOOC           = BIT(4),
+    CHARGER_RESET_BY_TEMP_PRE_NORMAL    = BIT(2),
+    CHARGER_RESET_BY_TEMP_NORMAL    = BIT(3),
+    CHARGER_RESET_BY_TEMP_WARM      = BIT(4),
+    CHARGER_RESET_BY_VOOC           = BIT(5),
 };
 
 enum {
@@ -162,11 +164,11 @@ struct opchg_charger {
     struct mutex                    read_write_lock;
     bool                            charger_inhibit_disabled;
 	bool							recharge_disabled;
-    int                             recharge_mv;
+ //   int                             recharge_mv;
     int                             float_compensation_mv;
     bool                            iterm_disabled;
-    int                             iterm_ma;
-    int                             vfloat_mv;
+ //   int                             iterm_ma;
+ //   int                             vfloat_mv;
     int                             chg_valid_gpio;
     int                             chg_valid_act_low;
     int                             chg_present;
@@ -199,9 +201,9 @@ struct opchg_charger {
     bool                            otg_disable_pending;
     
     int                             charging_disabled;
-    int                             fastchg_current_max_ma;
+ //   int                             fastchg_current_max_ma;
     int                             fastchg_current_ma;
-    int                             limit_current_max_ma;
+ //   int                             limit_current_max_ma;
     int                             faster_normal_limit_current_max_ma;
     bool                            charging_time_out;
     int                             charging_total_time;
@@ -216,6 +218,7 @@ struct opchg_charger {
     
     struct delayed_work             update_opchg_thread_work;
     struct delayed_work             opchg_delayed_wakeup_work;
+	struct work_struct				opchg_modify_tp_param_work;
     struct wakeup_source            source;
     
     struct opchg_regulator         otg_vreg;
@@ -226,20 +229,39 @@ struct opchg_charger {
     struct qpnp_vadc_chip           *vadc_dev;
     struct qpnp_adc_tm_chip         *adc_tm_dev;
     struct qpnp_adc_tm_btm_param    adc_param;
+
+	int								fast_charge_project;
+    int                             	fastchg_current_max_ma;
+    int                             	limit_current_max_ma;
+    int                             	iterm_ma;
+    int                             	vfloat_mv;
+    int                             	recharge_mv;
+	
     int                             hot_bat_decidegc;
+    int                             	temp_hot_vfloat_mv;
+    int                             	temp_hot_fastchg_current_ma;
+	
     int                             warm_bat_decidegc;
-    int                             pre_cool_bat_decidegc;
-    int                             cool_bat_decidegc;
-    int                             cold_bat_decidegc;
-    int                             bat_present_decidegc;
-    int                             temp_cool_vfloat_mv;
-    int                             temp_cool_fastchg_current_ma;
-    int                             temp_pre_cool_vfloat_mv;
-    int                             temp_pre_cool_fastchg_current_ma;
     int                             temp_warm_vfloat_mv;
     int                             temp_warm_fastchg_current_ma;
+	
+	int                             	pre_normal_bat_decidegc;
+    int                             	temp_pre_normal_vfloat_mv;
+    int                             	temp_pre_normal_fastchg_current_ma;	
+	
+    int                             pre_cool_bat_decidegc;
+    int                             temp_pre_cool_vfloat_mv;
+    int                             temp_pre_cool_fastchg_current_ma;
+	
+    int                             cool_bat_decidegc;
+    int                             temp_cool_vfloat_mv;
+    int                             temp_cool_fastchg_current_ma;
+	
+    int                             cold_bat_decidegc;
+    int                             bat_present_decidegc;
 	int								non_standard_vfloat_mv;
 	int								non_standard_fastchg_current_ma;
+	
     struct regulator*               vcc_i2c;
     int                             irq_gpio;
 	int								usbin_switch_gpio;
@@ -247,11 +269,11 @@ struct opchg_charger {
 	bool							batt_authen;
     //int                             usbphy_on_gpio;
     int                             fastcharger;
-	int								fast_charge_project;
+	//int								fast_charge_project;
     int                             driver_id;
     bool                            g_is_changed;
     int                             g_is_vooc_changed;
-    int                             vooc_start_step;
+ //   int                             vooc_start_step;
 	bool								opchg_earphone_enable;
     int                             g_is_reset_changed;
     int                             max_input_current[INPUT_CURRENT_MAX+1];;
@@ -296,6 +318,7 @@ struct opchg_charger {
 
 	//Liao Fuchun add for bq24196 wdt enable/disable
 	bool							wdt_enable;
+	#if 0
 	//Liao Fuchun add for batt temp
 	int								little_cool_bat_decidegc;
 	int								normal_bat_decidegc;
@@ -313,7 +336,12 @@ struct opchg_charger {
 	int								mBatteryTempBoundT4;
 	int								mBatteryTempBoundT5;
 	int								mBatteryTempBoundT6;
-	
+	#endif
+	int								aicl_current;
+	atomic_t						bms_suspended;
+	unsigned long					soc_update_time;
+	unsigned long					soc_update_pre_time;
+	bool							check_stat_again;
 };
 
 struct opchg_gpio_control {
@@ -360,6 +388,14 @@ struct opchg_bms_charger {
 	 */
 	struct  delayed_work		hw_config;
 	int soc_pre;
+	int 								fcc_pre;//full_charge_soc;
+	int 								soh_pre;
+	int 								cc_pre;
+	int 								fac_pre;
+	int 								rm_pre;
+	int 								pchg_pre;
+	int 								dod0_pre;
+	int 								flags_pre;
 	int temp_pre;
 	int batt_vol_pre;
 	int current_pre;
@@ -373,7 +409,11 @@ struct opchg_bms_charger {
 	int irq;
 	struct work_struct fastcg_work;
 	bool alow_reading;
+	// chang mod timer to delay tims for dengnw in 20141221
 	struct timer_list watchdog;
+	struct delayed_work             watchdog_delayed_work;
+	struct mutex					work_irq_lock;
+
 	struct wake_lock fastchg_wake_lock;
 	bool fast_chg_allow;
 	bool fast_low_temp_full;

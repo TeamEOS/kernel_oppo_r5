@@ -21,12 +21,15 @@
 #define OPPO_BMS_EXT extern
 #endif
 
-#define OPCHG_DEFAULT_BATT_CAPACITY            50
-#define OPCHG_SOC_DEFAULT_COUNT					6
-#define OPCHG_SOC_QUICKLY_COUNT					4
+#define OPCHG_DEFAULT_BATT_CAPACITY		50
+#define OPCHG_SOC_CHANGE_20S			3
+#define OPCHG_SOC_CHANGE_40S			8
+#define OPCHG_SOC_CHANGE_60S			12
+#define OPCHG_SOC_CHANGE_35S			7
+#define OPCHG_SOC_CHANGE_150S			30
+#define OPCHG_SOC_CHANGE_300S			60
+#define EIGHT_MINUTES					480
 
-
-#ifdef OPPO_USE_FAST_CHARGER
 OPPO_BMS_EXT	int opchg_get_prop_fast_chg_started(struct opchg_charger *chip);
 OPPO_BMS_EXT	int opchg_get_prop_fast_chg_allow(struct opchg_charger *chip);
 OPPO_BMS_EXT	int opchg_set_fast_chg_allow(struct opchg_charger *chip,int enable);
@@ -36,13 +39,12 @@ OPPO_BMS_EXT	int opchg_get_fast_chg_ing(struct opchg_charger *chip);
 OPPO_BMS_EXT	int opchg_set_fast_normal_to_warm_false(struct opchg_charger *chip);
 OPPO_BMS_EXT	int opchg_set_fast_switch_to_normal_false(struct opchg_charger *chip);
 OPPO_BMS_EXT	int opchg_get_fast_normal_to_warm(struct opchg_charger *chip);	
-#endif
-
 OPPO_BMS_EXT	int opchg_get_prop_authenticate(struct opchg_charger *chip);
 OPPO_BMS_EXT	int opchg_get_prop_batt_capacity(struct opchg_charger *chip);
 OPPO_BMS_EXT	int opchg_get_prop_current_now(struct opchg_charger *chip);
 OPPO_BMS_EXT	int opchg_get_prop_batt_health(struct opchg_charger *chip);
 OPPO_BMS_EXT	bool opchg_get_prop_batt_present(struct opchg_charger *chip);
 OPPO_BMS_EXT	int opchg_backup_ocv_soc(int soc);
+OPPO_BMS_EXT	int msmrtc_alarm_read_time(struct rtc_time *tm);
 
 #endif /*_OPPO_BMS_H_*/

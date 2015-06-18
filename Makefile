@@ -392,8 +392,26 @@ KBUILD_CPPFLAGS += -DVENDOR_EDIT
 CFLAGS_KERNEL +=   -DVENDOR_EDIT
 CFLAGS_MODULE +=   -DVENDOR_EDIT
 
+#Added by Tong.han@Bsp.group,2014-12-23,for select different config of console.
+ifeq ($(filter cmcc release,$(OPPO_BUILD_TYPE)),)
+KBUILD_CFLAGS += -DCONFIG_OPPO_DAILY_BUILD
+endif
+
 ifeq ($(OPPO_BUILD_TYPE),cmcctest)
 KBUILD_CFLAGS += -DOPPO_CMCC_TEST
+endif
+
+#Added by wenhua.Leng@MultiMedia.Display,2015-1-6,for select different config of build type.
+ifeq ($(OPPO_BUILD_TYPE),cmcc)
+KBUILD_CFLAGS += -DOPPO_CMCC_MP
+endif
+
+ifeq ($(OPPO_BUILD_TYPE),cutest)
+KBUILD_CFLAGS += -DOPPO_CU_TEST
+endif
+
+ifeq ($(OPPO_BUILD_TYPE),cu)
+KBUILD_CFLAGS += -DOPPO_CU_CLIENT
 endif
 
 #add by liwenxiong for cmcctest_dm compile
@@ -410,7 +428,8 @@ ifeq ($(OPPO_TARGET_DEVICE),MSM_14042)
 KBUILD_CFLAGS += -DOPPO_CU_TEST
 endif
 
-ifeq ($(OPPO_TARGET_DEVICE),MSM_14037)
+#Lile@EXP.BasicDrv 2014-11-19, add for 14065 clone
+ifneq ($(filter $(OPPO_TARGET_DEVICE),MSM_14037 MSM_14039 MSM_14040 MSM_14065 MSM_15057),)
 KBUILD_CFLGAS += -DCONFIG_ENHANCED_LMK
 CFLAGS_KERNEL +=   -DCONFIG_ENHANCED_LMK
 CFLAGS_MODULE +=   -DCONFIG_ENHANCED_LMK

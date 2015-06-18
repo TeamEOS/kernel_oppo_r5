@@ -31,9 +31,10 @@
 			compatible = "synaptics,oppo";
 			reg = <0x20>;
 			
-			pinctrl-names = "tp_id_pull_up","tp_id_pull_down";
-			pinctrl-0 = <&tp_gpio_id1_pullup   &tp_gpio_id2_pullup   &tp_gpio_id3_pullup>;
-			pinctrl-1 = <&tp_gpio_id1_pulldown &tp_gpio_id2_pulldown &tp_gpio_id3_pulldown>;			
+			pinctrl-names = "default","tp_id_pull_up","tp_id_pull_down";
+			pinctrl-0 = <&ts_int_active   &tp_gpio_id1_pullup   &tp_gpio_id2_pullup   &tp_gpio_id3_pullup>;
+			pinctrl-1 = <&tp_gpio_id1_pullup   &tp_gpio_id2_pullup   &tp_gpio_id3_pullup>;
+			pinctrl-2 = <&tp_gpio_id1_pulldown &tp_gpio_id2_pulldown &tp_gpio_id3_pulldown>;			
 			
 			interrupt-parent = <&msm_gpio>;
 			interrupts = <13 0x8>;
@@ -93,33 +94,74 @@
 			reg = <0x57>;
 			vcc_i2c_opcharger-supply = <&pm8916_l5>;
 			qcom,irq-gpio = <&msm_gpio 62 0x00>;
-			qcom,fast-charger-project-sign= <0>;						/* fastcharger project sign*/	
+									
 			qcom,usbin-switch-gpio = <&pm8916_gpios 4 0>;
 			qcom,batt-id-gpio = <&msm_gpio 49 0x00>;
-			qcom,input-current-max-ma = <1000>;
-			qcom,fastchg-current-max-ma = <900>;
+			
 			qcom,disable-apsd;
 			qcom,using-pmic-therm;
 			qcom,bms-controlled-charging;
 			qcom,charger-inhibit-disabled;
 			qcom,bms-psy-name = "bms";
-			qcom,iterm-ma = <100>;
-			qcom,float-voltage-mv = <4340>;
-			qcom,recharge-mv = <200>;
 			qcom,chg-vadc = <&pm8916_vadc>;
 			qcom,chg-adc_tm = <&pm8916_adc_tm>;
+			/*
+			qcom,iterm-ma = <100>;
+			qcom,recharge-mv = <200>;
+			qcom,fast-charger-project-sign= <0>;	
+			qcom,float-voltage-mv = <4340>;
+			qcom,input-current-max-ma = <1000>;
+			qcom,fastchg-current-max-ma = <900>;
+			
 			qcom,hot_bat_decidegc = <550>;
+			
 			qcom,warm_bat_decidegc = <450>;
-			qcom,pre_cool_bat_decidegc = <50>;
-			qcom,cool_bat_decidegc = <0>;
-			qcom,cold_bat_decidegc = <100>;
-			qcom,bat_present_decidegc = <200>;
-			qcom,temp_cool_vfloat_mv = <4020>;
-			qcom,temp_cool_fastchg_current_ma = <250>;
-			qcom,temp_pre_cool_vfloat_mv = <4220>;
-			qcom,temp_pre_cool_fastchg_current_ma = <512>;
 			qcom,temp_warm_vfloat_mv = <4120>;
 			qcom,temp_warm_fastchg_current_ma = <512>;
+			
+			qcom,pre_cool_bat_decidegc = <50>;
+			qcom,temp_pre_cool_vfloat_mv = <4220>;
+			qcom,temp_pre_cool_fastchg_current_ma = <512>;
+			
+			qcom,cool_bat_decidegc = <0>;
+			qcom,temp_cool_vfloat_mv = <4020>;
+			qcom,temp_cool_fastchg_current_ma = <250>;
+			
+			qcom,cold_bat_decidegc = <100>;
+			qcom,bat_present_decidegc = <200>;
+			qcom,non_standard_vfloat_mv = <4220>;
+			qcom,non_standard_fastchg_current_ma = <512>;
+			*/
+			
+			qcom,iterm-ma = <100>;									/*Charge termination current*/
+			qcom,recharge-mv = <200>;									/* The minimum voltage drop for recharger*/
+			qcom,fast-charger-project-sign= <0>;						/* fastcharger project sign*/	
+			qcom,fastchg-current-max-ma = <900>;						/*Maximum fast charging current.*/
+			qcom,input-current-max-ma = <1000>; 					/*Maximum input current.*/
+			qcom,float-voltage-mv = <4340>; 						/* from constant current charging to constant voltage chargeing for voltage threshold*/
+
+			qcom,hot_bat_decidegc = <550>;							/* hot battery temperature in decidegC = 55*/
+			qcom,temp_hot_vfloat_mv = <4120>;							/* hot battery temperature cutoff voltage =4.1V (45~55)*/
+			qcom,temp_hot_fastchg_current_ma = <512>;					/* hot battery temperature fast current   =0.75A (45~55)*/
+
+			qcom,warm_bat_decidegc = <450>; 						/* Warm battery temperature in decidegC= 45*/
+			qcom,temp_warm_vfloat_mv = <4340>;						/* warn battery temperature cutoff voltage =4.1V (5~45)*/
+			qcom,temp_warm_fastchg_current_ma = <900>; 			/* warn battery temperature fast current   =0.75A (5~45)*/
+
+			qcom,pre_normal_bat_decidegc = <200>;						/* pre_cool battery temperature in decidegC= 5*/	
+			qcom,temp_pre_normal_vfloat_mv = <4340>;						/* warn battery temperature cutoff voltage =4.1V (5~45)*/
+			qcom,temp_pre_normal_fastchg_current_ma = <900>;			/* warn battery temperature fast current   =0.75A (5~45)*/
+
+			qcom,pre_cool_bat_decidegc = <100>; 					/* pre_cool battery temperature in decidegC= 5*/	
+			qcom,temp_pre_cool_vfloat_mv = <4220>;					/* pre_cool battery temperature cutoff voltage =4.2V (0~5)*/
+			qcom,temp_pre_cool_fastchg_current_ma = <512>;			/* pre_cool battery temperature fast current   =0.75A (0~5)*/
+
+			qcom,cool_bat_decidegc = <0>;								/* cool battery temperature in decidegC= 0*/
+			qcom,temp_cool_vfloat_mv = <4020>;						/* cool battery temperature cutoff voltage =4.0V (-10~0) */
+			qcom,temp_cool_fastchg_current_ma = <250>;				/* cool battery temperature fast current   =0.25A(-10~0)*/
+
+			qcom,cold_bat_decidegc = <100>; 						/* cold battery temperature in decidegC= -10*/
+			qcom,bat_present_decidegc = <200>;						/* battery decidegc temperature in decidegC= -20*/
 			qcom,non_standard_vfloat_mv = <4220>;
 			qcom,non_standard_fastchg_current_ma = <512>;
 			regulator-name = "smb358_otg_vreg";
@@ -170,11 +212,6 @@
 		/*xiang.fei@Multimedia, 2014/07/29, Add for yda145*/
 		spk-pa-en = <&msm_gpio 120 0x00>;
 		/*xiang.fei@Multimedia, 2014/09/10, Add end*/
-		/*xiang.fei@Multimedia, 2014/09/19, Add for compatible audio*/
-		pcb-ver-flag0 = <&msm_gpio 50 0x00>;
-		pcb-ver-flag1 = <&msm_gpio 51 0x00>;
-		pcb-ver-flag2 = <&msm_gpio 52 0x00>;
-		/*xiang.fei@Multimedia, 2014/09/19, Add end*/
 	};
 };
 

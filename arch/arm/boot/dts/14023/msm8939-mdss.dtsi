@@ -30,7 +30,8 @@
 
 		/* Fudge factors */
 		qcom,mdss-ab-factor = <1 1>;		/* 1 times    */
-		qcom,mdss-ib-factor = <2 1>;		/* 2 times  */
+		qcom,mdss-ib-factor = <2 1>;		/* 2 times    */
+		qcom,mdss-ib-factor-cmd = <10 6>;	/* 1.6 times */
 		qcom,mdss-clk-factor = <105 100>;	/* 1.05 times */
 		qcom,max-bandwidth-low-kbps = <2000000>;
 		qcom,max-bandwidth-high-kbps = <2000000>;
@@ -78,8 +79,9 @@
 		qcom,mdss-has-decimation;
 		qcom,mdss-has-fixed-qos-arbiter-enabled;
 		qcom,mdss-has-dst-split;
+		qcom,mdss-no-hist-vote;
 
-		vdd-cx-supply = <&pm8916_s1_corner>;
+		vdd-cx-supply = <&pm8916_s2_corner>;
 		clocks = <&clock_gcc clk_gcc_mdss_ahb_clk>,
 			 <&clock_gcc clk_gcc_mdss_axi_clk>,
 			 <&clock_gcc clk_mdp_clk_src>,
@@ -234,8 +236,10 @@
 			00 00 00 00 0a 00 00 01 97
 			00 00 00 00 0f 00 00 01 97
 			00 c0 00 00 00 00 00 01 bb];
+
 		qcom,mmss-ulp-clamp-ctrl-offset = <0x20>;
 		qcom,mmss-phyreset-ctrl-offset = <0x24>;
+
 		qcom,core-supply-entries {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -248,6 +252,7 @@
 				qcom,supply-disable-load = <0>;
 			};
 		};
+
 		qcom,ctrl-supply-entries {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -261,6 +266,7 @@
 				qcom,supply-post-on-sleep = <20>;
 			};
 		};
+
 		qcom,panel-supply-entries {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -282,6 +288,7 @@
 			};
 		};
 	};
+
 	qcom,mdss_wb_panel {
 		compatible = "qcom,mdss_wb";
 		qcom,mdss_pan_res = <1280 720>;

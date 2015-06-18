@@ -25,8 +25,10 @@
 
 #include <linux/delay.h>
 
+#include "oppo_inc.h"
+
 #define OPPO_QPNP_CHARGER_DEV_NAME			"qcom,qpnp-linear-charger"
-#define CHG_CTRL_REG						0x49
+#define PMIC_CHG_CTRL_REG						0x49	//#define CHG_CTRL_REG						0x49
 #define CHG_FORCE_BATT_ON					BIT(0)	
 #define CHG_EN_MASK							(BIT(7) | BIT(0))
 #define PERP_SUBTYPE_REG					0x05
@@ -44,16 +46,6 @@
 #define BAT_IF_BTC_CTRL				0x49
 #define BTC_COMP_EN_MASK			BIT(7)
 
-struct oppo_qpnp_chg_chip {
-	struct device			*dev;
-	struct spmi_device		*spmi;
-	u16				chgr_base;
-	u16				bat_if_base;
-	u16				usb_chgpth_base;
-	u16				misc_base;
-	spinlock_t			hw_access_lock;
-
-};
 
 static int __oppo_qpnp_chg_read(struct spmi_device *spmi, u16 base,
 			u8 *val, int count)
@@ -82,8 +74,8 @@ static int __oppo_qpnp_chg_write(struct spmi_device *spmi, u16 base,
 	return rc;
 }
 
-static int oppo_qpnp_chg_read(struct oppo_qpnp_chg_chip *chip, u16 base,
-			u8 *val, int count)
+//static int oppo_qpnp_chg_read(struct oppo_qpnp_chg_chip *chip, u16 base,u8 *val, int count)
+int oppo_qpnp_chg_read(struct oppo_qpnp_chg_chip *chip, u16 base,u8 *val, int count)
 {
 	int rc = 0;
 	struct spmi_device *spmi = chip->spmi;
@@ -102,8 +94,8 @@ static int oppo_qpnp_chg_read(struct oppo_qpnp_chg_chip *chip, u16 base,
 	return rc;
 }
 
-static int oppo_qpnp_chg_write(struct oppo_qpnp_chg_chip *chip, u16 base,
-			u8 *val, int count)
+//static int oppo_qpnp_chg_write(struct oppo_qpnp_chg_chip *chip, u16 base,u8 *val, int count)
+int oppo_qpnp_chg_write(struct oppo_qpnp_chg_chip *chip, u16 base,u8 *val, int count)
 {
 	int rc = 0;
 	struct spmi_device *spmi = chip->spmi;
@@ -136,12 +128,12 @@ static int oppo_qpnp_chg_masked_write(struct oppo_qpnp_chg_chip *chip, u16 base,
 		pr_err("spmi read failed: addr=%03X, rc=%d\n", base, rc);
 		goto out;
 	}
-	pr_debug("addr = 0x%x read 0x%x\n", base, reg_val);
+	//pr_debug("addr = 0x%x read 0x%x\n", base, reg_val);
 
 	reg_val &= ~mask;
 	reg_val |= val & mask;
 
-	pr_debug("writing to base=%x val=%x\n", base, reg_val);
+	//pr_debug("writing to base=%x val=%x\n", base, reg_val);
 
 	rc = __oppo_qpnp_chg_write(spmi, base, &reg_val, 1);
 	if (rc)
@@ -158,8 +150,13 @@ static int oppo_qpnp_chg_disable(struct oppo_qpnp_chg_chip *chip)
 	u8 reg;
 
 	reg = CHG_FORCE_BATT_ON;
+	#if 0
 	rc = oppo_qpnp_chg_masked_write(chip, chip->chgr_base + CHG_CTRL_REG,
 							CHG_EN_MASK, reg);
+	#else
+	rc = oppo_qpnp_chg_masked_write(chip, chip->chgr_base + PMIC_CHG_CTRL_REG,
+							CHG_EN_MASK, reg);
+	#endif
 	/* disable BTC */
 	rc |= oppo_qpnp_chg_masked_write(chip, chip->bat_if_base + BAT_IF_BTC_CTRL,
 							BTC_COMP_EN_MASK, 0);
@@ -168,6 +165,37 @@ static int oppo_qpnp_chg_disable(struct oppo_qpnp_chg_chip *chip)
 	rc |= oppo_qpnp_chg_write(chip, chip->bat_if_base + BAT_IF_BPD_CTRL_REG,
 								&reg, 1);
 	return rc;
+}
+
+
+void opchg_set_pmic_soc_memory(int soc)
+{
+	int rc=0;
+	u8 soc_temp=0;
+	
+	if(opchg_pimic_chip == NULL)
+	{
+		pr_debug("opchg_pimic_chip is not probe\n");
+		return;
+	}
+	soc_temp = soc;
+	//rc = oppo_qpnp_chg_write(opchg_pimic_chip, opchg_pimic_chip->chgr_base + PMIC_SOC_STORAGE_REG,&soc_temp, 1);
+	rc = oppo_qpnp_chg_write(opchg_pimic_chip, BMS_VM_BMS_DATA_REG_0,&soc_temp, 1);
+}
+int opchg_get_pmic_soc_memory(void)
+{
+	int rc=0;
+	u8 reg=0;
+	
+	if(opchg_pimic_chip == NULL)
+	{
+		pr_debug("opchg_pimic_chip is not probe\n");
+		return reg;
+	}
+	//rc = oppo_qpnp_chg_read(opchg_pimic_chip, opchg_pimic_chip->chgr_base + PMIC_SOC_STORAGE_REG,&reg,1);
+	rc = oppo_qpnp_chg_read(opchg_pimic_chip, BMS_VM_BMS_DATA_REG_0,&reg,1);
+	//pr_debug("opchg_get_pmic_soc_memory is success\n");
+	return reg;
 }
 
 
@@ -188,6 +216,7 @@ static int oppo_qpnp_chg_probe(struct spmi_device *spmi)
 
 	chip->dev = &spmi->dev;
 	chip->spmi = spmi;
+	opchg_pimic_chip =chip;
 	dev_set_drvdata(&spmi->dev, chip);
 	device_init_wakeup(&spmi->dev, 1);
 	spin_lock_init(&chip->hw_access_lock);
@@ -236,6 +265,8 @@ static int oppo_qpnp_chg_probe(struct spmi_device *spmi)
 			rc = -EINVAL;
 		}
 	}
+	pr_debug("oppo_debug read pmic subtype=0x%x,chip->chgr_base=0x%x,chip->bat_if_base=0x%x,chip->misc_base=0x%x\n", 
+		subtype,chip->chgr_base,chip->bat_if_base,chip->misc_base);
 	
 	rc = oppo_qpnp_chg_disable(chip);
 	if(rc)

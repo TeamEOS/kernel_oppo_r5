@@ -39,11 +39,22 @@ struct device *ktd22xx_dev;
 int led_on_off = 255;
 unsigned long value = 0;
 int breath_leds = 0;//1--breath_led,255--turn on 0--turn off
+static int ktd22xx_max_brightness = 0xFF;
 
 static int major;
 static int onMS = 0;
 static int totalMS = 0;
 static int color_D1, color_D2, color_D3;
+
+#define LED1_OUT_ALON  0x1   //always on
+#define LED1_OUT_PWM1 0x2
+#define LED2_OUT_ALON  0x1<<2
+#define LED2_OUT_PWM1 0x2<<2
+#define LED3_OUT_ALON  0x1<<4
+#define LED3_OUT_PWM1 0x2<<4
+
+#define LED_OUT_ALON  (LED2_OUT_ALON)
+#define LED_OUT_PWM1 (LED2_OUT_PWM1)
 
 void ktd22xx_lowbattery_breath_leds(void){
 	/*
@@ -56,7 +67,7 @@ void ktd22xx_lowbattery_breath_leds(void){
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x05, 0xaa);//rase time
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x01, 0x12);//dry flash period
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x02, 0x00);//reset internal counter
-	i2c_smbus_write_byte_data(ktd20xx_client, 0x04, 0x02);//allocate led1 to timer1
+	i2c_smbus_write_byte_data(ktd20xx_client, 0x04, LED_OUT_PWM1);//allocate led1 to timer1
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x02, 0x56);//led flashing(curerent ramp-up and down countinuously)
 }
 
@@ -71,14 +82,14 @@ void ktd22xx_events_breath_leds(void){
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x05, 0xaa);//rase time
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x01, 0x30);//dry flash period
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x02, 0x00);//reset internal counter
-	i2c_smbus_write_byte_data(ktd20xx_client, 0x04, 0x02);//allocate led1 to timer1
+	i2c_smbus_write_byte_data(ktd20xx_client, 0x04, LED_OUT_PWM1);//allocate led1 to timer1
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x02, 0x56);//led flashing(curerent ramp-up and down countinuously)
 }
 
 void ktd2xx_led_on(void){
 	//turn on led when 0x00 is 0x00
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x06, 0x2f);//set current is 10mA
-	i2c_smbus_write_byte_data(ktd20xx_client, 0x04, 0x01);//turn om all of leds
+	i2c_smbus_write_byte_data(ktd20xx_client, 0x04, LED_OUT_ALON);//turn om all of leds
 }
 
 void ktd2xx_led_off(void){
@@ -99,7 +110,7 @@ void ktd22xx_breath_leds_time(int blink){
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x05, period);//rase time
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x01, flashtime);//dry flash period
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x02, 0x00);//reset internal counter
-	i2c_smbus_write_byte_data(ktd20xx_client, 0x04, 0x02);//allocate led1 to timer1
+	i2c_smbus_write_byte_data(ktd20xx_client, 0x04, LED_OUT_PWM1);//allocate led1 to timer1
 	i2c_smbus_write_byte_data(ktd20xx_client, 0x02, 0x56);//led flashing(curerent ramp-up and down countinuously)
 
 }
@@ -181,12 +192,20 @@ static ssize_t Breathled_switch_store2 ( struct device *dev,
 static void lcds_set_brightness(struct led_classdev *led_cdev,
 					enum led_brightness value)
 {
-	if(value > 255)
-	 value = 255;
+       //pr_err("%s ktd20xx name:%s value:%d \n", __func__, led_cdev->name, value);
+	if(value > ktd22xx_max_brightness)
+	 value = ktd22xx_max_brightness;
 	if (!strcmp(led_cdev->name, "red")) {
         color_D1 = value;
     }else if (!strcmp(led_cdev->name, "green")) {
-        color_D2 = value;
+        if (LED_OUT_PWM1 & LED2_OUT_PWM1)  //D2 output
+        {
+            color_D2 = color_D1; 
+        }
+        else
+        {
+            color_D2 = value;
+        }
     }else if (!strcmp(led_cdev->name, "blue")) { 
         color_D3 = value;
     }
@@ -225,6 +244,7 @@ static ssize_t sled_blink_store(struct device *dev, struct device_attribute *att
 		stableMS_reg = onMS*250/3/totalMS*2;
 		onMS_reg = onMS_reg|(onMS_reg << 4);
 		pr_err("total_MS:%d,onMS:%d,totalMS_reg:%d,onMS_reg:%d,stableMS_reg:%x\n",totalMS,onMS,totalMS_reg,onMS_reg,stableMS_reg);
+              pr_err("%s ktd20xx color_D1:%d color_D2:%d color_D3:%d \n", __func__, color_D1, color_D2, color_D3);
 		i2c_smbus_write_byte_data(ktd20xx_client, 0x00, 0x20);// initialization LED off
 		i2c_smbus_write_byte_data(ktd20xx_client, 0x04, 0x00);// initialization LED off
 		i2c_smbus_write_byte_data(ktd20xx_client, 0x06, color_D1);//set current is D1mA
@@ -233,7 +253,7 @@ static ssize_t sled_blink_store(struct device *dev, struct device_attribute *att
 		i2c_smbus_write_byte_data(ktd20xx_client, 0x05, onMS_reg);//rase time
 		i2c_smbus_write_byte_data(ktd20xx_client, 0x01, totalMS_reg);//dry flash period
 		i2c_smbus_write_byte_data(ktd20xx_client, 0x02, 0x00);//reset internal counter stableMS_reg
-		i2c_smbus_write_byte_data(ktd20xx_client, 0x04, 0x02);//allocate led1 to timer1
+		i2c_smbus_write_byte_data(ktd20xx_client, 0x04, LED_OUT_PWM1);//allocate led1 to timer1
 		i2c_smbus_write_byte_data(ktd20xx_client, 0x02, stableMS_reg);//led flashing(curerent ramp-up and down countinuously)
 	}else {
 		if((color_D1+color_D2+color_D3) == 0) {
@@ -242,7 +262,7 @@ static ssize_t sled_blink_store(struct device *dev, struct device_attribute *att
 			i2c_smbus_write_byte_data(ktd20xx_client, 0x06, color_D1);//set current is D1mA
 			i2c_smbus_write_byte_data(ktd20xx_client, 0x07, color_D2);//set current is D2mA
 			i2c_smbus_write_byte_data(ktd20xx_client, 0x08, color_D3);//set current is D3mA
-			i2c_smbus_write_byte_data(ktd20xx_client, 0x04, 0x01);//turn om all of leds
+			i2c_smbus_write_byte_data(ktd20xx_client, 0x04, LED_OUT_ALON);//turn om all of leds
 		}
 	} 
     return count;
@@ -385,11 +405,11 @@ static int ktd20xx_probe(struct i2c_client *client, const struct i2c_device_id *
 
 	int ret;
 	int err = 0;
-	int i;
+	int i, tmp = 0;
 	color_D1 = 0;
 	color_D2 = 0;
 	color_D3 = 0;
-	pr_err("[%s]: Enter!\n", __func__);
+	printk(KERN_ERR"[%s]: Enter!\n", __func__);
 	ktd20xx_client = kzalloc(sizeof(struct i2c_client), GFP_KERNEL);
 	if (!ktd20xx_client) {
 		dev_err(&client->dev,
@@ -407,6 +427,13 @@ static int ktd20xx_probe(struct i2c_client *client, const struct i2c_device_id *
 	}
 	/* create i2c struct, when receve and transmit some byte */
 	//printk("ktd2026 address is %x \n",ktd20xx_client->addr);
+
+    	ret = of_property_read_u32(client->dev.of_node, "ktd2026,max_brightness", &tmp);
+	if (!ret) 
+       {
+           //printk(KERN_ERR"%s val:%d \n", __func__, tmp);
+	    ktd22xx_max_brightness = tmp;
+       }
 
 	/*************Added by Tong.han for same interface with 14037*******************/
 	for(i = 0; i < 3; i ++ ) {
@@ -445,7 +472,7 @@ static int ktd20xx_probe(struct i2c_client *client, const struct i2c_device_id *
 	if (device_create_file(ktd22xx_dev, &dev_attr_breath_led) < 0)
 	    pr_err("Failed to create device file(%s)!\n", dev_attr_led.attr.name);
 	}
-	
+	printk(KERN_ERR"[%s]: OK!\n", __func__);
 	return 0;
 err_class_create:
 	class_destroy(ktd20xx_cls);

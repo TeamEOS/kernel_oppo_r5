@@ -32,11 +32,15 @@
 /* nanwei.deng@Mobile Phone Software bsp.Driver, 2014/10/30  Add for 14045 charger */
 extern void opchg_check_lcd_on(void);
 extern void opchg_check_lcd_off(void);
+
+extern int lcd_dev;
+
 #endif /*VENDOR_EDIT*/
 
 #ifdef VENDOR_EDIT
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/10/14  Add for 14045 ESD test */
 struct regulator *vdddc_3v3 = NULL;
+struct regulator *vddf_2v5 = NULL;
 #endif /*VENDOR_EDIT*/
 
 static int mdss_dsi_pinctrl_set_state(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
@@ -101,13 +105,21 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata, int enable)
 	if (enable) {
 #ifdef VENDOR_EDIT
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/10/14  Add for 14045 ESD test */
-		if((is_project(OPPO_14045)||is_project(OPPO_14051)) && vdddc_3v3!=NULL && te_reset_14045 == 1){
+		if((is_project(OPPO_14045)||is_project(OPPO_14051)) && vdddc_3v3!=NULL && vddf_2v5!=NULL && te_reset_14045 == 1){
 			pr_err("vdddc_3v3 enable");
 			//regulator_set_voltage(vdddc_3v3,3300000,3300000);
 			regulator_set_optimum_mode(vdddc_3v3,100000);
 			ret = regulator_enable(vdddc_3v3);
+			mdelay(2);
 			if (ret){
 				pr_err("vdddc_3v3 enable error ret = %d\n",ret);
+			}
+			pr_err("vddf_2v5 enable");
+			//regulator_set_voltage(vdddc_3v3,3300000,3300000);
+			regulator_set_optimum_mode(vddf_2v5,100000);
+			ret = regulator_enable(vddf_2v5);
+			if (ret){
+				pr_err("vddf_2v5 enable error ret = %d\n",ret);
 			}
 		}
 #endif /*VENDOR_EDIT*/
@@ -155,7 +167,8 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata, int enable)
 		}
 #ifdef VENDOR_EDIT
 //guoling@MM.lcddriver 2014-08-14 add 14043 for power off seq.
-		if(is_project(OPPO_14043)){
+/*Yongpeng.Yi@PhoneSW.Multimedia 2015-02-03 add for 15005 power off seq.*/
+		if(is_project(OPPO_14043) || is_project(OPPO_15005)){
 			msleep(110);
 		}
 #endif
@@ -164,7 +177,7 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata, int enable)
 		if (mdss_dsi_pinctrl_set_state(ctrl_pdata, false))
 			pr_debug("reset disable: pinctrl not enabled\n");
 #else /*VENDOR_EDIT*/
-		if(!(is_project(OPPO_14045)||is_project(OPPO_14051))){
+		if(!(is_project(OPPO_14045)||is_project(OPPO_14051) || (is_project(OPPO_15005)&&(lcd_dev==LCD_BOE_HX8379S)))){
 			if (mdss_dsi_pinctrl_set_state(ctrl_pdata, false))
 			pr_debug("reset disable: pinctrl not enabled\n");
 		}
@@ -186,7 +199,14 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata, int enable)
 		}
 #ifdef VENDOR_EDIT
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/10/14  Add for 14045 ESD test */
-		if((is_project(OPPO_14045)||is_project(OPPO_14051)) && vdddc_3v3!=NULL && te_reset_14045 == 1){
+		if((is_project(OPPO_14045)||is_project(OPPO_14051)) && vdddc_3v3!=NULL && vddf_2v5!=NULL && te_reset_14045 == 1){
+			pr_err("vddf_2v5 disable");
+			regulator_set_optimum_mode(vddf_2v5,100);
+			ret = regulator_disable(vddf_2v5);
+			if (ret){
+				pr_err("vddf_2v5 disable error ret = %d\n",ret);
+			}
+			mdelay(2);
 			pr_err("vdddc_3v3 disable");
 			regulator_set_optimum_mode(vdddc_3v3,100);
 			ret = regulator_disable(vdddc_3v3);
@@ -426,7 +446,7 @@ static int mdss_dsi_off(struct mdss_panel_data *pdata)
 
 #ifdef VENDOR_EDIT
 	/* nanwei.deng@Mobile Phone Software bsp.Driver, 2014/10/30  Add for 14045 charger */
-	if(is_project(OPPO_14045))
+	if(is_project(OPPO_14045) || is_project(OPPO_15005))
 	{
 		opchg_check_lcd_off();
 	}
@@ -819,7 +839,7 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 	
 #ifdef VENDOR_EDIT
 	/* nanwei.deng@Mobile Phone Software bsp.Driver, 2014/10/30  Add for 14045 charger */
-	if(is_project(OPPO_14045))
+	if(is_project(OPPO_14045) || is_project(OPPO_15005))
 	{
 		opchg_check_lcd_on();
 	}
@@ -997,7 +1017,7 @@ static int mdss_dsi_unblank(struct mdss_panel_data *pdata)
 		mipi->vsync_enable && mipi->hw_vsync_mode)
 		mdss_dsi_set_tear_on(ctrl_pdata);
 #else /*VENDOR_EDIT*/
-	if(!is_project(OPPO_14005)){
+	if(!is_project(OPPO_14005) && !is_project(OPPO_15011)){
 		if ((pdata->panel_info.type == MIPI_CMD_PANEL) &&
 		mipi->vsync_enable && mipi->hw_vsync_mode)
 		mdss_dsi_set_tear_on(ctrl_pdata);
@@ -1049,7 +1069,7 @@ static int mdss_dsi_blank(struct mdss_panel_data *pdata)
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/10/31  Modify for 14005 IOMMU ERROR */
 			mdss_dsi_set_tear_off(ctrl_pdata);
 #else /*VENDOR_EDIT*/
-			if(!is_project(OPPO_14005)){
+			if(!is_project(OPPO_14005) && !is_project(OPPO_15011)){
 				mdss_dsi_set_tear_off(ctrl_pdata);
 			}
 #endif /*VENDOR_EDIT*/
@@ -1062,7 +1082,7 @@ static int mdss_dsi_blank(struct mdss_panel_data *pdata)
 		mipi->vsync_enable && mipi->hw_vsync_mode)
 		mdss_dsi_set_tear_off(ctrl_pdata);
 #else /*VENDOR_EDIT*/
-	if(!is_project(OPPO_14005)){
+	if(!is_project(OPPO_14005) && !is_project(OPPO_15011)){
 		if ((pdata->panel_info.type == MIPI_CMD_PANEL) &&
 		mipi->vsync_enable && mipi->hw_vsync_mode)
 		mdss_dsi_set_tear_off(ctrl_pdata);
@@ -1315,6 +1335,15 @@ static int mdss_dsi_ctl_partial_update(struct mdss_panel_data *pdata)
 	return rc;
 }
 
+int mdss_dsi_register_recovery_handler(struct mdss_dsi_ctrl_pdata *ctrl,
+	struct mdss_intf_recovery *recovery)
+{
+	mutex_lock(&ctrl->mutex);
+	ctrl->recovery = recovery;
+	mutex_unlock(&ctrl->mutex);
+	return 0;
+}
+
 static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 				  int event, void *arg)
 {
@@ -1364,7 +1393,6 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		mdss_dsi_clk_req(ctrl_pdata, (int) (unsigned long) arg);
 		break;
 	case MDSS_EVENT_DSI_CMDLIST_KOFF:
-		ctrl_pdata->recovery = (struct mdss_panel_recovery *)arg;
 		mdss_dsi_cmdlist_commit(ctrl_pdata, 1);
 		break;
 	case MDSS_EVENT_PANEL_UPDATE_FPS:
@@ -1387,6 +1415,10 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 	case MDSS_EVENT_DSI_DYNAMIC_SWITCH:
 		rc = mdss_dsi_update_panel_config(ctrl_pdata,
 					(int)(unsigned long) arg);
+		break;
+	case MDSS_EVENT_REGISTER_RECOVERY_HANDLER:
+		rc = mdss_dsi_register_recovery_handler(ctrl_pdata,
+			(struct mdss_intf_recovery *)arg);
 		break;
 	default:
 		pr_debug("%s: unhandled event=%d\n", __func__, event);
@@ -1608,7 +1640,7 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 	}
 #ifdef VENDOR_EDIT
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/11/01  Add for 14005 warning info first suspend */
-	if((is_project(OPPO_14005)||is_project(OPPO_14037)) && ctrl_pdata->panel_data.panel_info.cont_splash_enabled){
+	if((is_project(OPPO_14005)||is_project(OPPO_14037) || is_project(OPPO_15057) ||is_project(OPPO_15011)) && ctrl_pdata->panel_data.panel_info.cont_splash_enabled){
 		mdss_dsi_request_gpios(ctrl_pdata);
 	}
 #endif /*VENDOR_EDIT*/
@@ -1874,20 +1906,37 @@ int dsi_panel_device_register(struct device_node *pan_node,
 
 #ifdef VENDOR_EDIT
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/10/14  Add for 14045 ESD test */
+	if(is_project(OPPO_14045)){
+		ctrl_pdata->disp_en_negative_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+			"qcom,platform-enn-enable-gpio", 0);
+		pr_err("enn-enable-gpio = %d\n",ctrl_pdata->disp_en_negative_gpio);
+	}
 	if(is_project(OPPO_14045)||is_project(OPPO_14051)){
 		vdddc_3v3 = regulator_get(&ctrl_pdev->dev, "vdddc_3v3");
 		if( IS_ERR(vdddc_3v3) ){
 			rc = PTR_ERR(vdddc_3v3);
 			pr_err("Regulator get failed vdddc rc=%d\n", rc);	
 		}
-		if(vdddc_3v3!=NULL){
+		vddf_2v5 = regulator_get(&ctrl_pdev->dev, "vddf_2v5");
+		if( IS_ERR(vddf_2v5) ){
+			rc = PTR_ERR(vddf_2v5);
+			pr_err("Regulator get failed vddf_2v5 rc=%d\n", rc);	
+		}
+		if(vdddc_3v3!=NULL && vddf_2v5!=NULL){
 			pr_err("%s vdddc_3v3 = %p\n",__func__,vdddc_3v3);
-			regulator_set_voltage(vdddc_3v3,3300000,3300000);
-			regulator_set_optimum_mode(vdddc_3v3,100000);
+			pr_err("%s vddf_2v5 = %p\n",__func__,vddf_2v5);
+			if(lcd_dev == LCD_14045_17_VIDEO || lcd_dev == LCD_14045_17_CMD){
+				regulator_set_voltage(vdddc_3v3,2800000,2800000);
+				regulator_set_voltage(vddf_2v5,1800000,1800000);
+			}else{
+				regulator_set_voltage(vdddc_3v3,3300000,3300000);
+				regulator_set_voltage(vddf_2v5,2500000,2500000);
+			}
+			/*regulator_set_optimum_mode(vdddc_3v3,100000);
 			rc = regulator_enable(vdddc_3v3);
 			if (rc){
 				pr_err("vdddc_3v3 enable error ret = %d\n",rc);
-			}
+			}*/
 		}
 	}
 #endif /*VENDOR_EDIT*/
@@ -1909,6 +1958,14 @@ int dsi_panel_device_register(struct device_node *pan_node,
 
 	ctrl_pdata->rst_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
 			 "qcom,platform-reset-gpio", 0);
+	
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/12/29  Add for 14045 base current */
+	if (is_project(OPPO_14045) && gpio_is_valid(ctrl_pdata->rst_gpio)){
+		if(gpio_is_valid(ctrl_pdata->rst_gpio))
+			gpio_direction_output(ctrl_pdata->rst_gpio,1);
+	}
+#endif /*VENDOR_EDIT*/
 	if (!gpio_is_valid(ctrl_pdata->rst_gpio))
 		pr_err("%s:%d, reset gpio not specified\n",
 						__func__, __LINE__);

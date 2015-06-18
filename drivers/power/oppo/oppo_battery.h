@@ -28,22 +28,29 @@
 #define LCD_ON_CHARGING_FAST_CURRENT						1000
 #define LCD_OFF_CHARGING_FAST_CURRENT					1500
 
+#define LCD_ON_CHARGING_INPUT_CURRENT_15005				700
+#define LCD_OFF_CHARGING_INPUT_CURRENT_15005			1000
+
 #define CAMERA_ON_CHARGING_INPUT_CURRENT					1000
 #define CAMERA_OFF_CHARGING_INPUT_CURRENT					1500
 #define CAMERA_ON_CHARGING_FAST_CURRENT					600
 #define CAMERA_OFF_CHARGING_FAST_CURRENT					1500
+
+#define CAMERA_ON_CHARGING_INPUT_CURRENT_15005			700
+#define CAMERA_OFF_CHARGING_INPUT_CURRENT_15005			1000
 
 #define CMCC_CHARGER_FULL_4250MV						4240000
 #define CMCC_CHARGER_FULL_4208MV						4208000
 #define CMCC_FULL_CHARGING_INPUT_CURRENT					150
 #define CMCC_CHARGING_INPUT_CURRENT						1500
 
+#if 0
 #ifdef OPPO_BATTERY_PAR
 struct opchg_charger *chip_opchg = NULL;
 #else
 extern struct opchg_charger *chip_opchg;
 #endif
-
+#endif
 OPPO_BATTERY_EXT int oppo_power_type;
 
 OPPO_BATTERY_EXT int opchg_inout_charge_parameters(struct opchg_charger *chip);
@@ -71,6 +78,9 @@ OPPO_BATTERY_EXT void opchg_set_status(struct opchg_charger *chip);
 OPPO_BATTERY_EXT void opchg_update_thread(struct work_struct *work);
 OPPO_BATTERY_EXT void opchg_delayed_wakeup_thread(struct work_struct *work);
 OPPO_BATTERY_EXT void opchg_works_init(struct opchg_charger *chip);
+#if 0
 OPPO_BATTERY_EXT int  opchg_battery_temp_region_get(struct opchg_charger *chip);
+OPPO_BATTERY_EXT void opchg_battery_temp_region_set(struct opchg_charger *chip,int batt_temp_region);
+#endif
 
 #endif /*_OPPO_BATTERY_H_*/

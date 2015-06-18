@@ -905,6 +905,56 @@ static int msm_eeprom_spi_remove(struct spi_device *sdev)
 	return 0;
 }
 
+#ifdef VENDOR_EDIT
+/*zhengrong.zhang, 2015/03/02, modify for 15013 eeprom*/
+uint16_t s5k3m2_module = 0;
+static void msm_eeprom_s5k3m2_read_vendorInfo(struct msm_eeprom_ctrl_t *e_ctrl)
+{
+    int rc = 0;
+    uint16_t read_data = 0;
+
+    e_ctrl->i2c_client.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
+
+    rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+            		&e_ctrl->i2c_client, 0x0031,
+            		&read_data, MSM_CAMERA_I2C_BYTE_DATA);
+    if (rc < 0) {
+		pr_err("%s read 0x0031 failed\n", __func__);
+	} else {
+        pr_err("%s read 0x0031=%d\n", __func__,read_data);
+    }
+
+    if (read_data == 0x01) {
+        int i;
+        uint16_t sum1 = 0, read_value = 0;
+        for (i = 0; i <= 0x1B; i++) {
+            rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+        		&e_ctrl->i2c_client, i,
+        		&read_data, MSM_CAMERA_I2C_BYTE_DATA);
+            if (rc < 0) {
+        		pr_err("%s read 0x%x fail\n", __func__, i);
+        	} else {
+        	    if (i == 0) {
+                    read_value = read_data;
+                    //pr_err("%s read 0x%x=%d\n", __func__, i, read_value);
+        	    }
+                sum1 += read_data;
+            }
+        }
+        sum1 = sum1%255;
+
+        rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+        		&e_ctrl->i2c_client, 0x0032,
+        		&read_data, MSM_CAMERA_I2C_BYTE_DATA);
+
+        if (sum1 == read_data) {
+            pr_err("%s read module info success,value=%d\n", __func__, read_value);
+            s5k3m2_module = read_value;
+        }
+    }
+}
+#endif
+
 static int msm_eeprom_platform_probe(struct platform_device *pdev)
 {
 	int rc = 0;
@@ -1011,9 +1061,18 @@ static int msm_eeprom_platform_probe(struct platform_device *pdev)
 	if (rc)
 		goto board_free;
 
+#ifdef VENDOR_EDIT
+/*zhengrong.zhang, 2015/03/02, modify for 15013 eeprom*/
+    if (strcmp(eb_info->eeprom_name, "s5k3m2_cat24c64") != 0) {
+    	rc = msm_eeprom_parse_memory_map(of_node, &e_ctrl->cal_data);
+    	if (rc < 0)
+    		goto board_free;
+    }
+#else
 	rc = msm_eeprom_parse_memory_map(of_node, &e_ctrl->cal_data);
 	if (rc < 0)
 		goto board_free;
+#endif
 
 	rc = msm_camera_power_up(power_info, e_ctrl->eeprom_device_type,
 		&e_ctrl->i2c_client);
@@ -1021,6 +1080,14 @@ static int msm_eeprom_platform_probe(struct platform_device *pdev)
 		pr_err("failed rc %d\n", rc);
 		goto memdata_free;
 	}
+
+#ifdef VENDOR_EDIT
+/*zhengrong.zhang, 2015/03/02, modify for 15013 eeprom*/
+    if (strcmp(eb_info->eeprom_name, "s5k3m2_cat24c64") == 0) {
+        msm_eeprom_s5k3m2_read_vendorInfo(e_ctrl);
+    }
+#endif
+    
 	rc = read_eeprom_memory(e_ctrl, &e_ctrl->cal_data);
 	if (rc < 0) {
 		pr_err("%s read_eeprom_memory failed\n", __func__);
@@ -1142,6 +1209,10 @@ static int __init msm_eeprom_init_module(void)
 	rc = platform_driver_probe(&msm_eeprom_platform_driver,
 		msm_eeprom_platform_probe);
 	CDBG("%s:%d platform rc %d\n", __func__, __LINE__, rc);
+#ifdef VENDOR_EDIT
+/*zhengrong.zhang, 2015/03/02, modify for eeprom*/
+    return rc;
+#endif
 	rc = spi_register_driver(&msm_eeprom_spi_driver);
 	CDBG("%s:%d spi rc %d\n", __func__, __LINE__, rc);
 	return i2c_add_driver(&msm_eeprom_i2c_driver);
@@ -1150,6 +1221,10 @@ static int __init msm_eeprom_init_module(void)
 static void __exit msm_eeprom_exit_module(void)
 {
 	platform_driver_unregister(&msm_eeprom_platform_driver);
+#ifdef VENDOR_EDIT
+/*zhengrong.zhang, 2015/03/02, modify for eeprom*/
+    return;
+#endif
 	spi_unregister_driver(&msm_eeprom_spi_driver);
 	i2c_del_driver(&msm_eeprom_i2c_driver);
 }

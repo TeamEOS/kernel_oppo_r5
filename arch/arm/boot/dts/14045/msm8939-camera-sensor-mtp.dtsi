@@ -17,6 +17,7 @@
 &cci {
 
 	/*OPPO 2014-08-04 hufeng add for eeprom*/
+	/*
 	eeprom0: qcom,eeprom@34 {
 		cell-index = <0>;
 		reg = <0x34 0x0>;
@@ -129,6 +130,7 @@
 		qcom,cam-power-seq-cfg-val = <1 1 1 1 24000000>;
 		qcom,cam-power-seq-delay = <1 10 1 10 5>;
 	};
+	*/
 	/*OPPO hufeng add end*/
 	/*OPPO 2014-07-23 hufeng add for 14005 flash*/
 	lm3642:flashlight {
@@ -190,7 +192,7 @@
 		qcom,mount-angle = <90>;
 		qcom,actuator-src = <&actuator0>;
 		qcom,led-flash-src = <&led_flash0>;
-		qcom,eeprom-src = <&eeprom0>;
+		/*qcom,eeprom-src = <&eeprom0>;*/
 //		cam_vana-supply = <&pm8916_l17>;
 //		cam_vio-supply = <&pm8916_l16>;
 		cam_vaf-supply = <&pm8916_l10>;

@@ -623,6 +623,11 @@
 //#ifdef VENDOR_EDIT //Jianfeng.Qiu@Multimedia, 2014/10/28, Add for boost voltage
 			qcom,cdc-boost-voltage = <4450>;
 //#endif /* VENDOR_EDIT */
+			/*xiang.fei@Multimedia, 2014/09/19, Add for compatible audio*/
+			pcb-ver-flag0 = <&msm_gpio 50 0x00>;
+			pcb-ver-flag1 = <&msm_gpio 51 0x00>;
+			pcb-ver-flag2 = <&msm_gpio 52 0x00>;
+			/*xiang.fei@Multimedia, 2014/09/19, Add end*/
 		};
 
 		pm8916_tombak_analog: msm8x16_wcd_codec@f100{

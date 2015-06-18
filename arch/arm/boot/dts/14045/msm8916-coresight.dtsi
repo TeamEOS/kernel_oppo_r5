@@ -18,8 +18,11 @@
 		reg-names = "tmc-base", "bam-base";
 		interrupts = <0 166 0>;
 		interrupt-names = "byte-cntr-irq";
-
-		qcom,memory-size = <0x100000>;
+		
+		//#ifdef VENDOR_EDIT
+		/*dengnw@bsp.drv   add QCOM figo give the patch for  case01960402 in 20150405*/
+		qcom,memory-size = <0x2000000>;
+		//#endif
 		qcom,tmc-flush-powerdown;
 
 		coresight-id = <0>;

@@ -51,14 +51,19 @@
 									15 01 00 00 01 00 02 b3 70
 									15 01 00 00 01 00 02 21 00
 									05 01 00 00 01 00 02 df 00
-					05 01 00 00 20 00 02 E5 01*/
-					15 01 00 00 20 00 02 E5 01
-					05 01 00 00 20 00 02 35 00
+					05 01 00 00 20 00 02 E5 01
+					05 01 00 00 01 00 02 de 00
+					15 01 00 00 01 00 02 d5 50
+					15 01 00 00 01 00 02 d6 23
+					15 01 00 00 01 00 02 d7 77
+					05 01 00 00 01 00 02 d8 0f
+					05 01 00 00 01 00 02 df 00
+					05 01 00 00 01 00 02 35 00*/
 					05 01 00 00 78 00 02 11 00 /* exit sleep */
 					05 01 00 00 20 00 02 29 00 /* display on */];
 		qcom,mdss-dsi-off-command = [05 01 00 00 32 00 02 28 00
 									 05 01 00 00 78 00 02 10 00
-									 15 01 00 00 20 00 02 E4 01];
+									 /*15 01 00 00 20 00 02 E4 01*/];
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-h-sync-pulse = <1>;
@@ -83,7 +88,9 @@
 		qcom,mdss-pan-physical-width-dimension = <62>;
 		qcom,mdss-pan-physical-height-dimension = <111>;
 		/*qcom,mdss-dsi-init-delay-us = <50000>;*/
-		/*qcom,ulps-enabled;*/
-		qcom,suspend-ulps-enabled;
+		/*qcom,ulps-enabled;
+		qcom,suspend-ulps-enabled;*/
+		qcom,esd-check-enabled;
+		qcom,mdss-dsi-panel-status-check-mode = "bta_check";
 	};
 };

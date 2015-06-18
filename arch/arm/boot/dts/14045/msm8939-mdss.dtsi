@@ -30,7 +30,8 @@
 
 		/* Fudge factors */
 		qcom,mdss-ab-factor = <1 1>;		/* 1 times    */
-		qcom,mdss-ib-factor = <2 1>;		/* 2 times  */
+		qcom,mdss-ib-factor = <2 1>;		/* 2 times    */
+		qcom,mdss-ib-factor-cmd = <10 6>;	/* 1.6 times */
 		qcom,mdss-clk-factor = <105 100>;	/* 1.05 times */
 		qcom,max-bandwidth-low-kbps = <2000000>;
 		qcom,max-bandwidth-high-kbps = <2000000>;
@@ -78,6 +79,7 @@
 		qcom,mdss-has-decimation;
 		qcom,mdss-has-fixed-qos-arbiter-enabled;
 		qcom,mdss-has-dst-split;
+		qcom,mdss-no-hist-vote;
 
 		vdd-cx-supply = <&pm8916_s2_corner>;
 		clocks = <&clock_gcc clk_gcc_mdss_ahb_clk>,
@@ -134,8 +136,8 @@
 		gdsc-supply = <&gdsc_mdss>;
 		vdda-supply = <&pm8916_l2>;
 		
-		vddf-supply = <&pm8916_l16>;
-		/*Xiaori.Yuan modified for lcd*/
+		/*vddf-supply = <&pm8916_l16>;
+		Xiaori.Yuan modified for lcd*/
 		/*vdd-supply = <&pm8916_l17>;*/
 		vddio-supply = <&pm8916_l6>;
 		clocks = <&clock_gcc clk_gcc_mdss_mdp_clk>,
@@ -192,15 +194,15 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			/*Xiaori.Yuan modified for lcd*/
-			qcom,panel-supply-entry@0 {
+			/*qcom,panel-supply-entry@0 {
 				reg = <0>;
 				qcom,supply-name = "vddf";
-				qcom,supply-min-voltage = <2500000>;
-				qcom,supply-max-voltage = <2500000>;
+				qcom,supply-min-voltage = <1800000>;
+				qcom,supply-max-voltage = <1800000>;
 				qcom,supply-enable-load = <100000>;
 				qcom,supply-disable-load = <100>;
 			};
-			/*qcom,panel-supply-entry@0 {
+			qcom,panel-supply-entry@0 {
 				reg = <0>;
 				qcom,supply-name = "vdd";
 				qcom,supply-min-voltage = <2850000>;
@@ -231,8 +233,8 @@
 		qcom,mdss-mdp = <&mdss_mdp>;
 		gdsc-supply = <&gdsc_mdss>;
 		vdda-supply = <&pm8916_l2>;
-		vddf-supply = <&pm8916_l16>;
-		/*Xiaori.Yuan modified for lcd*/
+		/*vddf-supply = <&pm8916_l16>;
+		Xiaori.Yuan modified for lcd*/
 		/*vdd-supply = <&pm8916_l17>;*/
 		vddio-supply = <&pm8916_l6>;
 		clocks = <&clock_gcc clk_gcc_mdss_mdp_clk>,
@@ -287,15 +289,15 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			/*Xiaori.Yuan modified for lcd*/
-			qcom,panel-supply-entry@0 {
+			/*qcom,panel-supply-entry@0 {
 				reg = <0>;
 				qcom,supply-name = "vddf";
-				qcom,supply-min-voltage = <2500000>;
-				qcom,supply-max-voltage = <2500000>;
+				qcom,supply-min-voltage = <1800000>;
+				qcom,supply-max-voltage = <1800000>;
 				qcom,supply-enable-load = <100000>;
 				qcom,supply-disable-load = <100>;
 			};
-			/*qcom,panel-supply-entry@0 {
+			qcom,panel-supply-entry@0 {
 				reg = <0>;
 				qcom,supply-name = "vdd";
 				qcom,supply-min-voltage = <2850000>;

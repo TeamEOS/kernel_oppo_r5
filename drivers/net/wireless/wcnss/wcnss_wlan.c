@@ -201,7 +201,12 @@ static DEFINE_SPINLOCK(reg_spinlock);
 
 /* max 20mhz channel count */
 #define WCNSS_MAX_CH_NUM			45
+#ifdef VENDOR_EDIT
+//hedong.liu@Connectivity.WiFi, 2015/02/13, Add for wcnss not ready when system bootup
+#define WCNSS_MAX_PIL_RETRY			4
+#else
 #define WCNSS_MAX_PIL_RETRY			2
+#endif /*VENDOR_EDIT*/
 
 #define VALID_VERSION(version) \
 	((strncmp(version, "INVALID", WCNSS_VERSION_LEN)) ? 1 : 0)
@@ -2753,6 +2758,10 @@ wcnss_trigger_config(struct platform_device *pdev)
 
 	do {
 		/* trigger initialization of the WCNSS */
+		#ifdef VENDOR_EDIT
+		//hedong.liu@Connectivity.WiFi, 2015/02/13, Add for wcnss not ready when system bootup
+		 msleep(50);
+		#endif /* VENDOR_EDIT */
 		penv->pil = subsystem_get(WCNSS_PIL_DEVICE);
 		if (IS_ERR(penv->pil)) {
 			dev_err(&pdev->dev, "Peripheral Loader failed on WCNSS.\n");

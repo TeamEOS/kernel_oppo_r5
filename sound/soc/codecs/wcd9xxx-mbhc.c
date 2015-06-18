@@ -44,6 +44,12 @@
 #include "wcd9xxx-resmgr.h"
 #include "wcd9xxx-common.h"
 
+#ifdef VENDOR_EDIT
+/*chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Added for 14061 otg */
+#include <linux/usb/msm_hsusb.h>
+struct wcd9xxx_mbhc *oppo_mbhc;
+static int auto_test_otg = 0;
+#endif /*VENDOR_EDIT*/
 #define WCD9XXX_JACK_MASK (SND_JACK_HEADSET | SND_JACK_OC_HPHL | \
 			   SND_JACK_OC_HPHR | SND_JACK_LINEOUT | \
 			   SND_JACK_UNSUPPORTED | SND_JACK_MICROPHONE2)
@@ -605,8 +611,19 @@ static void wcd9xxx_jack_report(struct wcd9xxx_mbhc *mbhc,
 						WCD9XXX_COND_HPH,
 						status & SND_JACK_HEADPHONE);
 	}
+#ifdef VENDOR_EDIT
+ /*chaoying.chen@EXP.BaseDrv.otg,2014/12/22  Modified for 14061 otg */
+         if(is_project(OPPO_14005)&&(get_Operator_Version() >= 5))
+          {
+                if(atomic_read(&headset_status) == 1)
+                  snd_soc_jack_report_no_dapm(jack, status, mask);
+          }
+         else
+              snd_soc_jack_report_no_dapm(jack, status, mask);
+#else /*VENDOR_EDIT*/
+        snd_soc_jack_report_no_dapm(jack, status, mask);
+#endif /*VENDOR_EDIT*/
 
-    snd_soc_jack_report_no_dapm(jack, status, mask);
 }
 
 static void __hphocp_off_report(struct wcd9xxx_mbhc *mbhc, u32 jack_status,
@@ -863,6 +880,31 @@ extern void opchg_check_earphone_on(void);
 extern void opchg_check_earphone_off(void);
 #endif
 /*OPPO 2014-09-09 zhzhyon Add end*/
+
+#ifdef VENDOR_EDIT
+ /*chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Added for 14061 otg */
+void oppo_headset_detect_plug(int status)
+{
+  if(is_project(OPPO_14005)&&(get_Operator_Version() >= 5)){
+      while(!oppo_mbhc){
+          msleep(200);
+          pr_err("[%s]oppo_mbhc isn't ok,please wait\r\n",__func__);
+      }
+      if(status){
+         gpio_direction_output(oppo_mbhc->mbhc_cfg->ap_audio_enable_gpio, 1);
+         opchg_set_switch_mode(HEADPHONE_MODE);
+         opchg_check_earphone_on();
+         pr_err("[%s] headset insert \n", __func__);
+         wcd9xxx_jack_report(oppo_mbhc, &oppo_mbhc->headset_jack,oppo_mbhc->hph_status, WCD9XXX_JACK_MASK);
+      } else {
+	     pr_err("[%s] headset remove \n", __func__);
+         oppo_mbhc->hph_status &= ~SND_JACK_HEADPHONE;
+         wcd9xxx_jack_report(oppo_mbhc, &oppo_mbhc->headset_jack,oppo_mbhc->hph_status, WCD9XXX_JACK_MASK);
+      }
+  }
+}
+#endif /*VENDOR_EDIT*/
+
 /* called under codec_resource_lock acquisition */
 static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 				enum snd_jack_types jack_type)
@@ -914,6 +956,16 @@ static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 		{
 			gpio_direction_output(mbhc->mbhc_cfg->ap_audio_enable_gpio, 0);
 			opchg_check_earphone_off();
+
+                  #ifdef VENDOR_EDIT
+                   /*chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Added for 14061 otg */
+                   if(get_Operator_Version() >= 5)
+                   {
+                       pr_err("[%s]headset remove, headset_status set to 0  \n", __func__);
+                       atomic_set(&headset_status,0);
+                       opchg_set_switch_mode(NORMAL_CHARGER_MODE);
+                   }
+                  #endif /*VENDOR_EDIT*/
 		}
 		/*OPPO 2014-08-26 zhzhyon Add end*/
 	} else {
@@ -974,9 +1026,35 @@ static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 		/*OPPO 2014-08-26 zhzhyon Add for reason*/
 		if(is_project(OPPO_14005))
 		{         
+                   #ifdef VENDOR_EDIT
+                    /*chaoying.chen@EXP.BaseDrv.otg,2014/12/22  Added for 14061 otg */
+                    if((get_Operator_Version() >= 5)){
+                        if((mbhc->current_plug == PLUG_TYPE_HEADSET)||(auto_test_otg == 0)){
+                            pr_err("[%s]mbhc->current_plug=PLUG_TYPE_HEADSET/auto_test_otg=0,headset_status set to 1  \n", __func__);
+                            atomic_set(&headset_status,1);
+                            atomic_set(&otg_id_state,1);
+                        }
+                        oppo_mbhc = mbhc;
+                        pr_err("[%s]otg_id_state=%d,headset_status=%d\n", __func__,atomic_read(&otg_id_state),atomic_read(&headset_status));                
+                    }
+                  #endif /*VENDOR_EDIT*/
 			 gpio_direction_output(mbhc->mbhc_cfg->ap_audio_enable_gpio, 1);
 			 opchg_set_switch_mode(HEADPHONE_MODE);
 			 opchg_check_earphone_on();
+                    #ifdef VENDOR_EDIT
+                    /*chaoying.chen@EXP.BaseDrv.otg,2014/12/22  Added for 14061 otg */
+                    if((get_Operator_Version() >= 5)){
+                         if((mbhc->current_plug == PLUG_TYPE_HEADPHONE)&&(auto_test_otg == 1)){
+                            atomic_set(&otg_id_state,0);
+                            atomic_set(&headset_status,0);
+                            gpio_direction_output(mbhc->mbhc_cfg->ap_audio_enable_gpio, 0);
+                            opchg_check_earphone_off();
+                            opchg_set_switch_mode(NORMAL_CHARGER_MODE);
+                            oppo_otg_id_status(atomic_read(&otg_id_state));
+                        }
+                        pr_err("[%s]otg_id_state=%d,headset_status=%d\n", __func__,atomic_read(&otg_id_state),atomic_read(&headset_status));
+                   }
+                  #endif /*VENDOR_EDIT*/
 			//gpio_direction_output(mbhc->mbhc_cfg->select_lr_gpio1, 1);
 			//gpio_direction_output(mbhc->mbhc_cfg->select_lr_gpio2, 0);
 		}
@@ -3336,6 +3414,20 @@ static void wcd9xxx_swch_irq_handler(struct wcd9xxx_mbhc *mbhc)
 	pr_debug("%s: Current plug type %d, insert %d\n", __func__,
 		 mbhc->current_plug, insert);
   
+        #ifdef VENDOR_EDIT
+         /*chaoying.chen@EXP.BaseDrv.otg,2014/12/22  Added for 14061 otg */
+         if(is_project(OPPO_14005) && (get_Operator_Version() >= 5))
+         {
+            pr_err("[%s]befor check,otg_id_state=%d,headset_status=%d\n", __func__,atomic_read(&otg_id_state),atomic_read(&headset_status));
+            if((atomic_read(&headset_status) == 0) && (insert == 0)){
+               atomic_set(&otg_id_state,1);
+               opchg_check_earphone_off();
+               opchg_set_switch_mode(NORMAL_CHARGER_MODE);
+               oppo_otg_id_status(atomic_read(&otg_id_state));
+            }
+            pr_err("[%s]after check,otg_id_state=%d,headset_status=%d\n", __func__,atomic_read(&otg_id_state),atomic_read(&headset_status));
+         }
+        #endif /*VENDOR_EDIT*/
 	/*OPPO 2014-08-26 zhzhyon Add for headset*/
 	pr_err("%s: Current plug type %d, insert %d\n", __func__,
 		 mbhc->current_plug, insert);	
@@ -4334,6 +4426,12 @@ static int wcd9xxx_setup_jack_detect_irq(struct wcd9xxx_mbhc *mbhc)
 					  wcd9xxx_mech_plug_detect_irq,
 					  "Jack Detect",
 					  mbhc);
+        #ifdef VENDOR_EDIT
+         /*chaoying.chen@EXP.BaseDrv.otg,2015/01/16  Added for 14061 otg */
+          if(is_project(OPPO_14005) && (get_Operator_Version() >= 5)){
+             oppo_mbhc = mbhc;
+          }
+        #endif /*VENDOR_EDIT*/
 		if (ret)
 			pr_err("%s: Failed to request insert detect irq %d\n",
 				__func__, mbhc->intr_ids->hs_jack_switch);

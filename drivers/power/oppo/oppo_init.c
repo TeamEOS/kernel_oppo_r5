@@ -13,7 +13,7 @@
 *******************************************************************************/
 
 #define OPPO_INIT_PAR
-#include <oppo_inc.h>
+#include "oppo_inc.h"
 
 
 int opchg_parse_dt(struct opchg_charger *chip)
@@ -30,7 +30,7 @@ int opchg_parse_dt(struct opchg_charger *chip)
     
     #ifdef OPPO_USE_QCOMM
     if (!node) {
-        dev_err(chip->dev, "device tree info. missing\n");
+        dev_dbg(chip->dev, "device tree info. missing\n");
         return -EINVAL;
     }
     #endif
@@ -116,6 +116,12 @@ int opchg_parse_dt(struct opchg_charger *chip)
     //
     #endif
 	
+	#ifdef OPPO_USE_QCOMM
+    chip->charger_inhibit_disabled = of_property_read_bool(node, "qcom,charger-inhibit-disabled");
+	#elif defined(OPPO_USE_MTK)
+    chip->charger_inhibit_disabled = true;
+	#endif
+	
 //    #ifdef OPPO_USE_QCOMM
 //    chip->usbphy_on_gpio = of_get_named_gpio_flags(node, "qcom,usbphy_on-gpio", 0, &gpio_flags);
 //    if (!gpio_is_valid(chip->usbphy_on_gpio)) {
@@ -125,10 +131,55 @@ int opchg_parse_dt(struct opchg_charger *chip)
 //    //
 //    #endif
     
+	
+#if 1   
+    #ifdef OPPO_USE_QCOMM
+	rc = of_property_read_u32(node, "qcom,faster-normal-limit-current-max-ma", &chip->faster_normal_limit_current_max_ma);
+    if (rc) {
+        chip->faster_normal_limit_current_max_ma = OPCHG_IMPUT_CURRENT_LIMIT_MAX_MA;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->faster_normal_limit_current_max_ma = OPCHG_IMPUT_CURRENT_LIMIT_MAX_MA;
+    #endif
+    
+    #ifdef OPPO_USE_QCOMM
+    chip->iterm_disabled = of_property_read_bool(node, "qcom,iterm-disabled");
+    #elif defined(OPPO_USE_MTK)
+    chip->iterm_disabled = false;
+    #endif
+    
+    #ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,taper-float-voltage-mv", &chip->taper_vfloat_mv);
+    if (rc < 0) {
+        chip->taper_vfloat_mv = -EINVAL;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->taper_vfloat_mv = 4320;
+    #endif
+    
+    #ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,opchg-fast-taper-fastchg-current-ma", &chip->fast_taper_fastchg_current_ma);
+    if (rc < 0) {
+        chip->fast_taper_fastchg_current_ma = -EINVAL;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->fast_taper_fastchg_current_ma = 2100;
+    #endif
+	
+	#ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,float-compensation-mv", &chip->float_compensation_mv);
+    if (rc < 0) {
+        chip->float_compensation_mv = -EINVAL;
+    }
+	#elif defined(OPPO_USE_MTK)
+    chip->float_compensation_mv = 100;
+	#endif
+ #endif
+ 
     #ifdef OPPO_USE_QCOMM
     rc = of_property_read_u32(node, "qcom,fast-charger-project-sign", &chip->fast_charge_project);
     if (rc) {
-		if(is_project(OPPO_14005)||is_project(OPPO_14023))
+		if(is_project(OPPO_14005)||is_project(OPPO_14023)||is_project(OPPO_15011)||is_project(OPPO_15018))
 		{
 			chip->fast_charge_project = true;
 		}
@@ -140,6 +191,26 @@ int opchg_parse_dt(struct opchg_charger *chip)
     #elif defined(OPPO_USE_MTK)
     chip->fast_charge_project = 0;
     #endif
+
+ 
+	#ifdef OPPO_USE_QCOMM
+ 	rc = of_property_read_u32(node, "qcom,iterm-ma", &chip->iterm_ma);
+ 	if (rc < 0) {
+		 chip->iterm_ma = -EINVAL;
+	}
+	#elif defined(OPPO_USE_MTK)
+ 	chip->iterm_ma = 150;
+	#endif
+ 	
+    #ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,recharge-mv", &chip->recharge_mv);
+    if (rc < 0) {
+        chip->recharge_mv = -EINVAL;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->recharge_mv = 200;
+    #endif
+
 	
     #ifdef OPPO_USE_QCOMM
     rc = of_property_read_u32(node, "qcom,fastchg-current-max-ma", &chip->fastchg_current_max_ma);
@@ -159,81 +230,15 @@ int opchg_parse_dt(struct opchg_charger *chip)
     #elif defined(OPPO_USE_MTK)
     chip->limit_current_max_ma = OPCHG_IMPUT_CURRENT_LIMIT_MAX_MA;
     #endif
-    
-    #ifdef OPPO_USE_QCOMM
-	rc = of_property_read_u32(node, "qcom,faster-normal-limit-current-max-ma", &chip->faster_normal_limit_current_max_ma);
-    if (rc) {
-        chip->faster_normal_limit_current_max_ma = OPCHG_IMPUT_CURRENT_LIMIT_MAX_MA;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->faster_normal_limit_current_max_ma = OPCHG_IMPUT_CURRENT_LIMIT_MAX_MA;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    chip->iterm_disabled = of_property_read_bool(node, "qcom,iterm-disabled");
-    #elif defined(OPPO_USE_MTK)
-    chip->iterm_disabled = false;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,iterm-ma", &chip->iterm_ma);
-    if (rc < 0) {
-        chip->iterm_ma = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->iterm_ma = 150;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,float-voltage-mv", &chip->vfloat_mv);
-    if (rc < 0) {
-        chip->vfloat_mv = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->vfloat_mv = 4320;
-    #endif
-
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,taper-float-voltage-mv", &chip->taper_vfloat_mv);
-    if (rc < 0) {
-        chip->taper_vfloat_mv = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->taper_vfloat_mv = 4320;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,opchg-fast-taper-fastchg-current-ma", &chip->fast_taper_fastchg_current_ma);
-    if (rc < 0) {
-        chip->fast_taper_fastchg_current_ma = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->fast_taper_fastchg_current_ma = 2100;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,recharge-mv", &chip->recharge_mv);
-    if (rc < 0) {
-        chip->recharge_mv = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->recharge_mv = 200;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,float-compensation-mv", &chip->float_compensation_mv);
-    if (rc < 0) {
-        chip->float_compensation_mv = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->float_compensation_mv = 100;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    chip->charger_inhibit_disabled = of_property_read_bool(node, "qcom,charger-inhibit-disabled");
-    #elif defined(OPPO_USE_MTK)
-    chip->charger_inhibit_disabled = true;
-    #endif
+	
+	#ifdef OPPO_USE_QCOMM
+ 	rc = of_property_read_u32(node, "qcom,float-voltage-mv", &chip->vfloat_mv);
+ 	if (rc < 0) {
+		chip->vfloat_mv = -EINVAL;
+ 	}
+	#elif defined(OPPO_USE_MTK)
+ 	chip->vfloat_mv = 4320;
+	#endif
     
     #ifdef OPPO_USE_QCOMM
     rc = of_property_read_u32(node, "qcom,hot_bat_decidegc", &chip->hot_bat_decidegc);
@@ -243,7 +248,26 @@ int opchg_parse_dt(struct opchg_charger *chip)
     #elif defined(OPPO_USE_MTK)
     chip->hot_bat_decidegc = 550;
     #endif
+	
+	#ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,temp_hot_vfloat_mv", &chip->temp_hot_vfloat_mv);
+    if (rc < 0) {
+        chip->temp_hot_vfloat_mv = -EINVAL;
+    }
+	#elif defined(OPPO_USE_MTK)
+    chip->temp_hot_vfloat_mv = 4100;
+	#endif
     
+	#ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,temp_hot_fastchg_current_ma",
+                            &chip->temp_hot_fastchg_current_ma);
+    if (rc < 0) {
+        chip->temp_hot_fastchg_current_ma = -EINVAL;
+    }
+	#elif defined(OPPO_USE_MTK)
+    chip->temp_hot_fastchg_current_ma = 750;
+	#endif
+	
     #ifdef OPPO_USE_QCOMM
     rc = of_property_read_u32(node, "qcom,warm_bat_decidegc", &chip->warm_bat_decidegc);
     if (rc < 0) {
@@ -252,14 +276,80 @@ int opchg_parse_dt(struct opchg_charger *chip)
     #elif defined(OPPO_USE_MTK)
     chip->warm_bat_decidegc = 450;
     #endif
+	
+    #ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,temp_warm_vfloat_mv", &chip->temp_warm_vfloat_mv);
+    if (rc < 0) {
+        chip->temp_warm_vfloat_mv = -EINVAL;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->temp_warm_vfloat_mv = 4320;
+    #endif
     
+    #ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,temp_warm_fastchg_current_ma",
+                            &chip->temp_warm_fastchg_current_ma);
+    if (rc < 0) {
+        chip->temp_warm_fastchg_current_ma = -EINVAL;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->temp_warm_fastchg_current_ma = 1500;
+    #endif
+	
+	#ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,pre_normal_bat_decidegc", &chip->pre_normal_bat_decidegc);
+    if (rc < 0) {
+        chip->pre_normal_bat_decidegc = -EINVAL;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->pre_normal_bat_decidegc = 150;
+    #endif
+	
+	#ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,temp_pre_normal_vfloat_mv", &chip->temp_pre_normal_vfloat_mv);
+    if (rc < 0) {
+        chip->temp_pre_normal_vfloat_mv = -EINVAL;
+    }
+	#elif defined(OPPO_USE_MTK)
+    chip->temp_pre_normal_vfloat_mv = 4320;
+	#endif
+    
+	#ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,temp_pre_normal_fastchg_current_ma",
+                            &chip->temp_pre_normal_fastchg_current_ma);
+    if (rc < 0) {
+        chip->temp_pre_normal_fastchg_current_ma = -EINVAL;
+    }
+	#elif defined(OPPO_USE_MTK)
+    chip->temp_pre_normal_fastchg_current_ma = 750;
+	#endif
+	
     #ifdef OPPO_USE_QCOMM
     rc = of_property_read_u32(node, "qcom,pre_cool_bat_decidegc", &chip->pre_cool_bat_decidegc);
     if (rc < 0) {
         chip->pre_cool_bat_decidegc = -EINVAL;
     }
     #elif defined(OPPO_USE_MTK)
-    chip->pre_cool_bat_decidegc = 50;
+    chip->pre_cool_bat_decidegc = 100;
+    #endif
+    
+    #ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,temp_pre_cool_vfloat_mv", &chip->temp_pre_cool_vfloat_mv);
+    if (rc < 0) {
+        chip->temp_pre_cool_vfloat_mv = -EINVAL;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->temp_pre_cool_vfloat_mv = 4200;
+    #endif
+    
+    #ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,temp_pre_cool_fastchg_current_ma",
+                            &chip->temp_pre_cool_fastchg_current_ma);
+    if (rc < 0) {
+        chip->temp_pre_cool_fastchg_current_ma = -EINVAL;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->temp_pre_cool_fastchg_current_ma = 750;
     #endif
     
     #ifdef OPPO_USE_QCOMM
@@ -269,6 +359,24 @@ int opchg_parse_dt(struct opchg_charger *chip)
     }
     #elif defined(OPPO_USE_MTK)
     chip->cool_bat_decidegc = 0;
+    #endif
+    
+    #ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,temp_cool_vfloat_mv", &chip->temp_cool_vfloat_mv);
+    if (rc < 0) {
+        chip->temp_cool_vfloat_mv = -EINVAL;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->temp_cool_vfloat_mv = 4000;
+    #endif
+    
+    #ifdef OPPO_USE_QCOMM
+    rc = of_property_read_u32(node, "qcom,temp_cool_fastchg_current_ma", &chip->temp_cool_fastchg_current_ma);
+    if (rc < 0) {
+        chip->temp_cool_fastchg_current_ma = -EINVAL;
+    }
+    #elif defined(OPPO_USE_MTK)
+    chip->temp_cool_fastchg_current_ma = 250;
     #endif
     
     #ifdef OPPO_USE_QCOMM
@@ -296,62 +404,6 @@ int opchg_parse_dt(struct opchg_charger *chip)
     #endif
     
     #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,temp_cool_vfloat_mv", &chip->temp_cool_vfloat_mv);
-    if (rc < 0) {
-        chip->temp_cool_vfloat_mv = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->temp_cool_vfloat_mv = 4000;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,temp_cool_fastchg_current_ma", &chip->temp_cool_fastchg_current_ma);
-    if (rc < 0) {
-        chip->temp_cool_fastchg_current_ma = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->temp_cool_fastchg_current_ma = 250;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,temp_pre_cool_vfloat_mv", &chip->temp_pre_cool_vfloat_mv);
-    if (rc < 0) {
-        chip->temp_pre_cool_vfloat_mv = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->temp_pre_cool_vfloat_mv = 250;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,temp_pre_cool_fastchg_current_ma",
-                            &chip->temp_pre_cool_fastchg_current_ma);
-    if (rc < 0) {
-        chip->temp_pre_cool_fastchg_current_ma = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->temp_pre_cool_fastchg_current_ma = 750;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,temp_warm_vfloat_mv", &chip->temp_warm_vfloat_mv);
-    if (rc < 0) {
-        chip->temp_warm_vfloat_mv = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->temp_warm_vfloat_mv = 4100;
-    #endif
-    
-    #ifdef OPPO_USE_QCOMM
-    rc = of_property_read_u32(node, "qcom,temp_warm_fastchg_current_ma",
-                            &chip->temp_warm_fastchg_current_ma);
-    if (rc < 0) {
-        chip->temp_warm_fastchg_current_ma = -EINVAL;
-    }
-    #elif defined(OPPO_USE_MTK)
-    chip->temp_warm_fastchg_current_ma = 750;
-    #endif
-
-	#ifdef OPPO_USE_QCOMM
 	rc = of_property_read_u32(node, "qcom,non_standard_vfloat_mv",
 						&chip->non_standard_vfloat_mv);
 	if (rc < 0)
@@ -369,59 +421,23 @@ int opchg_parse_dt(struct opchg_charger *chip)
 	chip->non_standard_fastchg_current_ma = 750;
 	#endif
 
-	//Fuchun.Liao 2014-11-17 add for new standard of charge
-	#ifdef OPPO_USE_QCOMM
-	rc = of_property_read_u32(node, "qcom,normal_bat_decidegc",&chip->normal_bat_decidegc);
-	if(rc < 0)
-		pr_err("%s normal_bat_decidegc fail\n",__func__);
-	#elif defined(OPPO_USE_MTK)
-	chip->normal_bat_decidegc = 200;
-	#endif
-	
-	#ifdef OPPO_USE_QCOMM
-	rc = of_property_read_u32(node, "qcom,temp_cold_vfloat_mv",&chip->temp_cold_vfloat_mv);
-	if(rc < 0)
-		pr_err("%s temp_cold_vfloat_mv fail\n",__func__);
-	#elif defined(OPPO_USE_MTK)
-	chip->temp_cold_vfloat_mv = 4000;
-	#endif
+    pr_debug("chip->charging_disabled= %d,chip->irq_gpio= %d,chip->fast_charge_project= %d,\
+		chip->iterm_ma= %d,chip->recharge_mv= %d,chip->limit_current_max_ma= %d,chip->vfloat_mv= %d,chip->fastchg_current_max_ma= %d,\n", 
+		chip->charging_disabled,chip->irq_gpio,chip->fast_charge_project,
+		chip->iterm_ma,chip->recharge_mv,chip->limit_current_max_ma,chip->vfloat_mv,chip->fastchg_current_max_ma);
+    pr_debug("chip->hot_bat_decidegc= %d,chip->temp_hot_vfloat_mv= %d,chip->temp_hot_fastchg_current_ma= %d,\
+		chip->warm_bat_decidegc= %d,chip->temp_warm_vfloat_mv= %d,chip->temp_warm_fastchg_current_ma= %d,\
+		chip->pre_normal_bat_decidegc= %d,chip->temp_pre_normal_vfloat_mv= %d,chip->temp_pre_normal_fastchg_current_ma= %d,\
+		chip->pre_cool_bat_decidegc= %d,chip->temp_pre_cool_vfloat_mv= %d,chip->temp_pre_cool_fastchg_current_ma= %d,\
+		chip->cool_bat_decidegc= %d,chip->temp_cool_vfloat_mv= %d,chip->temp_cool_fastchg_current_ma= %d,\n", 
+		chip->hot_bat_decidegc,chip->temp_hot_vfloat_mv,chip->temp_hot_fastchg_current_ma,
+		chip->warm_bat_decidegc,chip->temp_warm_vfloat_mv,chip->temp_warm_fastchg_current_ma,
+		chip->pre_normal_bat_decidegc,chip->temp_pre_normal_vfloat_mv,chip->temp_pre_normal_fastchg_current_ma,
+		chip->pre_cool_bat_decidegc,chip->temp_pre_cool_vfloat_mv,chip->temp_pre_cool_fastchg_current_ma,
+		chip->cool_bat_decidegc,chip->temp_cool_vfloat_mv,chip->temp_cool_fastchg_current_ma);
+    pr_debug("chip->cold_bat_decidegc= %d,chip->bat_present_decidegc= %d,chip->non_standard_vfloat_mv= %d,chip->non_standard_fastchg_current_ma= %d\n", 
+		chip->cold_bat_decidegc,chip->bat_present_decidegc,chip->non_standard_vfloat_mv,chip->non_standard_fastchg_current_ma);
 
-	#ifdef OPPO_USE_QCOMM
-	rc = of_property_read_u32(node, "qcom,temp_cold_fastchg_current_ma",&chip->temp_cold_fastchg_current_ma);
-	if(rc < 0)
-		pr_err("%s temp_cold_fastchg_current_ma fail\n",__func__);
-	#elif defined(OPPO_USE_MTK)
-	chip->temp_cold_fastchg_current_ma = 200;
-	#endif
-
-	#ifdef OPPO_USE_QCOMM
-	rc = of_property_read_u32(node, "qcom,little_cool_bat_decidegc",&chip->little_cool_bat_decidegc);
-	if(rc < 0)
-		pr_err("%s little_cool_bat_decidegc fail\n",__func__);
-	#elif defined(OPPO_USE_MTK)
-	chip->little_cool_bat_decidegc = 0;
-	#endif
-
-	#ifdef OPPO_USE_QCOMM
-	rc = of_property_read_u32(node, "qcom,temp_little_cool_vfloat_mv",&chip->temp_little_cool_vfloat_mv);
-	if(rc < 0)
-		pr_err("%s temp_little_cool_vfloat_mv fail\n",__func__);
-	#elif defined(OPPO_USE_MTK)
-	chip->temp_little_cool_vfloat_mv = 4350;
-	#endif
-
-	#ifdef OPPO_USE_QCOMM
-	rc = of_property_read_u32(node, "qcom,temp_little_cool_fastchg_current_ma",&chip->temp_little_cool_fastchg_current_ma);
-	if(rc < 0)
-		pr_err("%s temp_little_cool_fastchg_current_ma fail\n",__func__);
-	#elif defined(OPPO_USE_MTK)
-	chip->temp_little_cool_fastchg_current_ma = 600;
-	#endif
-
-    printk("charger_inhibit_disabled = %d, recharge-disabled = %d,recharge-mv = %d, vfloat_mv = %d, iterm-disabled = %d, fastchg_current = %d, charging_disabled = %d, disable-apsd = %d bms = %s cold_bat_degree = %d, hot_bat_degree = %d, bat_present_decidegc = %d,temp_cold_vfloat_mv = %d,temp_cold_ma = %d,little_cool_decidegc = %d,little_cool_vfloat_mv = %d,temp_little_cool_ma = %d\n", 
-    			chip->charger_inhibit_disabled, chip->recharge_disabled,chip->recharge_mv, chip->vfloat_mv, chip->iterm_ma, chip->fastchg_current_max_ma, chip->charging_disabled, chip->disable_apsd, chip->bms_psy_name, 
-    				chip->cold_bat_decidegc, chip->hot_bat_decidegc, chip->bat_present_decidegc,chip->temp_cold_vfloat_mv,chip->temp_cold_fastchg_current_ma,
-    					chip->little_cool_bat_decidegc,chip->temp_little_cool_vfloat_mv,chip->temp_little_cool_fastchg_current_ma);
     return 0;
 }
 
@@ -429,7 +445,7 @@ void qpnp_battery_gauge_register(struct qpnp_battery_gauge *batt_gauge)
 {
 	if (qpnp_batt_gauge) {
 		qpnp_batt_gauge = batt_gauge;
-		pr_err("qpnp-charger %s multiple battery gauge called\n",
+		pr_debug("qpnp-charger %s multiple battery gauge called\n",
 								__func__);
 	} else {
 		qpnp_batt_gauge = batt_gauge;
@@ -459,7 +475,7 @@ static int opcharger_charger_probe(struct i2c_client *client, const struct i2c_d
     
     chip = devm_kzalloc(&client->dev, sizeof(*chip), GFP_KERNEL);
     if (!chip) {
-        dev_err(&client->dev, "Couldn't allocate memory\n");
+        dev_dbg(&client->dev, "Couldn't allocate memory\n");
         return -ENOMEM;
     }
     
@@ -469,7 +485,8 @@ static int opcharger_charger_probe(struct i2c_client *client, const struct i2c_d
     chip->fake_battery_soc = -EINVAL;
 
     chip->driver_id = id->driver_data;
-	chip->boot_mode = get_boot_mode();;
+	chip->boot_mode = get_boot_mode();
+	opchg_chip = chip;
     dev_dbg(chip->dev, "opcharger_i2c_id=%d,boot_mode =%d\n",chip->driver_id,chip->boot_mode);
     
     /* early for VADC get, defer probe if needed */
@@ -477,7 +494,7 @@ static int opcharger_charger_probe(struct i2c_client *client, const struct i2c_d
     if (IS_ERR(chip->vadc_dev)) {
         rc = PTR_ERR(chip->vadc_dev);
         if (rc != -EPROBE_DEFER) {
-            pr_err("vadc property missing\n");
+            pr_debug("vadc property missing\n");
         }
         
         return rc;
@@ -487,7 +504,7 @@ static int opcharger_charger_probe(struct i2c_client *client, const struct i2c_d
     if(IS_ERR(chip->adc_tm_dev)) {
         rc = PTR_ERR(chip->adc_tm_dev);
         if (rc != -EPROBE_DEFER) {
-            pr_err("adc_tm property missing\n");
+            pr_debug("adc_tm property missing\n");
         }
         
         return rc;
@@ -519,7 +536,7 @@ static int opcharger_charger_probe(struct i2c_client *client, const struct i2c_d
     /* probe the device to check if its actually connected */
     rc = opchg_read_reg(chip, INPUT_CURRENT_LIMIT_REG, &reg);
     if (rc) {
-        pr_err("Failed to detect OPCHARGER, device may be absent\n");
+        pr_debug("Failed to detect OPCHARGER, device may be absent\n");
         return -ENODEV;
     }
     
@@ -550,7 +567,8 @@ static int opcharger_charger_probe(struct i2c_client *client, const struct i2c_d
         return rc;
     }
 
-	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14051)){
+	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14051) 
+		|| is_project(OPPO_15005) || is_project(OPPO_15057)){
 		if(gpio_is_valid(chip->usbin_switch_gpio)){
 			rc = gpio_request(chip->usbin_switch_gpio,"opcharger_usbin_switch");
 			if(rc)
@@ -626,7 +644,8 @@ static int opcharger_charger_probe(struct i2c_client *client, const struct i2c_d
     #ifdef OPPO_USE_ADC_TM_IRQ
     /* add hot/cold temperature monitor */
     chip->charging_opchg_temp_statu = OPCHG_CHG_TEMP_NORMAL;
-    chip->adc_param.low_temp = chip->pre_cool_bat_decidegc;
+    //chip->adc_param.low_temp = chip->pre_cool_bat_decidegc;
+    chip->adc_param.low_temp = chip->pre_normal_bat_decidegc;
     chip->adc_param.high_temp = chip->warm_bat_decidegc;
     chip->adc_param.timer_interval = ADC_MEAS2_INTERVAL_1S;
     chip->adc_param.state_request = ADC_TM_HIGH_LOW_THR_ENABLE;
@@ -636,21 +655,19 @@ static int opcharger_charger_probe(struct i2c_client *client, const struct i2c_d
     /* update battery missing info in tm_channel_measure*/
     rc = qpnp_adc_tm_channel_measure(chip->adc_tm_dev, &chip->adc_param);
     if (rc) {
-        pr_err("requesting ADC error %d\n", rc);
+        pr_debug("requesting ADC error %d\n", rc);
     }
     #else
     /* add hot/cold temperature monitor */
     chip->charging_opchg_temp_statu = OPCHG_CHG_TEMP_NORMAL;
-    chip->adc_param.low_temp = chip->pre_cool_bat_decidegc;
+    //chip->adc_param.low_temp = chip->pre_cool_bat_decidegc;
+    chip->adc_param.low_temp = chip->pre_normal_bat_decidegc;
     chip->adc_param.high_temp = chip->warm_bat_decidegc;
     chip->adc_param.state_request = ADC_TM_HIGH_LOW_THR_ENABLE;
     #endif
     
     opchg_debugfs_create(chip);
-    
-	opchg_dump_regs(chip);
-
-	opchg_chip = chip;
+	//opchg_dump_regs(chip);
 	
     #ifdef VENDOR_EDIT
 	/////////////////////////////////////////////////
@@ -670,17 +687,21 @@ static int opcharger_charger_probe(struct i2c_client *client, const struct i2c_d
 	}  
     #endif
 
-	if(gpio_is_valid(chip->batt_id_gpio)){
-		rc = gpio_request(chip->batt_id_gpio,"opcharger_batt_id");
-		if(rc)
-			dev_err(&client->dev, "gpio_request for %d failed rc=%d\n", chip->batt_id_gpio, rc);
-		chip->batt_authen = oppo_battery_status_init(chip->batt_id_gpio);
-		if(!chip->batt_authen){
-			msleep(30);
+	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_15057)){
+		if(gpio_is_valid(chip->batt_id_gpio)){
+			rc = gpio_request(chip->batt_id_gpio,"opcharger_batt_id");
+			if(rc)
+				dev_err(&client->dev, "gpio_request for %d failed rc=%d\n", chip->batt_id_gpio, rc);
 			chip->batt_authen = oppo_battery_status_init(chip->batt_id_gpio);
+			if(!chip->batt_authen){
+				msleep(30);
+				chip->batt_authen = oppo_battery_status_init(chip->batt_id_gpio);
+			}
 		}
-	}	
-	pr_info("%s success,charger_present:%d\n",__func__,chip->chg_present);
+	} else {
+		chip->batt_authen = 1;
+	}
+	pr_debug("opcharger end========================= success,charger_present:%d\n",chip->chg_present);
     return 0;
 	
 err_set_vtg_i2c:
@@ -732,7 +753,7 @@ static int opcharger_suspend(struct device *dev)
         	return rc;
     	}
 	}
-    
+    atomic_set(&chip->bms_suspended, 1);
     return 0;
 }
 
@@ -754,13 +775,13 @@ static int opcharger_resume(struct device *dev)
     enable_irq(client->irq);
 	
     #if 0
-    if (chip_opchg->otg_enable_pending) {	
-        chip_opchg->otg_enable_pending = false;
+    if (opchg_chip->otg_enable_pending) {	
+        opchg_chip->otg_enable_pending = false;
         smb358_chg_otg_enable();
     }
 	
-    if (chip_opchg->otg_disable_pending) {		
-        chip_opchg->otg_disable_pending = false;
+    if (opchg_chip->otg_disable_pending) {		
+        opchg_chip->otg_disable_pending = false;
         smb358_chg_otg_disable();
     }
     #endif
@@ -772,7 +793,7 @@ static int opcharger_resume(struct device *dev)
         power_supply_changed(&chip->batt_psy);	
     }
     #endif
-	
+	atomic_set(&chip->bms_suspended, 0);
     schedule_delayed_work(&chip->update_opchg_thread_work,
                             round_jiffies_relative(msecs_to_jiffies
                             (OPCHG_THREAD_INTERVAL)));

@@ -27,12 +27,14 @@
 #include <linux/gpio.h>
 #include <linux/uaccess.h>
 #include <linux/cdev.h>
+#include "synaptics_redremote.h"
 
 
 #define CHAR_DEVICE_NAME "rmi"
 #define DEVICE_CLASS_NAME "rmidev"
 #define DEV_NUMBER 1
 #define REG_ADDR_LIMIT 0xFFFF
+
 
 static ssize_t rmidev_sysfs_data_show(struct file *data_file,
 		struct kobject *kobj, struct bin_attribute *attributes,
@@ -57,15 +59,19 @@ static ssize_t rmidev_sysfs_length_store(struct device *dev,
 static ssize_t rmidev_sysfs_attn_state_show(struct device *dev,
 		struct device_attribute *attr, char *buf);
 
-int remote_rmi4_i2c_read(unsigned short addr, unsigned char *data, unsigned short length);
-int remote_rmi4_i2c_write(unsigned short addr, unsigned char *data, unsigned short length);
-int remote_rmi4_i2c_enable(bool enable);
-int remote_rmi4_get_irq_gpio(void);
-int remote_rmit_set_page(unsigned int address);
-int remote_rmit_put_page(unsigned int address);
-extern struct input_dev *remote_rmi4_get_input(void);
-extern struct i2c_client *remote_rmi4_get_i2c_client(void);
-extern void remote_rmi4_delay_work(struct work_struct *work);
+static int remote_rmi4_i2c_read(unsigned short addr, unsigned char *data, unsigned short length);
+static int remote_rmi4_i2c_write(unsigned short addr, unsigned char *data, unsigned short length);
+static int remote_rmi4_i2c_enable(bool enable);
+static int remote_rmi4_get_irq_gpio(void);
+static int remote_rmit_set_page(unsigned int address);
+static int remote_rmit_put_page(void);
+
+
+static struct input_dev *remote_rmi4_get_input(void);
+static struct i2c_client *remote_rmi4_get_i2c_client(void);
+static void remote_rmi4_delay_work(struct work_struct *work);
+static struct remotepanel_data *remote_free_panel_data(struct remotepanel_data *pdata);
+
 
 #define MASK_8BIT 0xFF ;
 #define SYN_I2C_RETRY_TIMES 3;
@@ -85,6 +91,7 @@ struct rmidev_data {
 	struct class *device_class;
 	struct mutex file_mutex;
 	struct rmidev_handle *rmi_dev;
+	struct remotepanel_data *pdata;
 };
 
 static struct bin_attribute attr_data = {
@@ -269,6 +276,84 @@ static ssize_t rmidev_sysfs_attn_state_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", attn_state);
 }
 
+static int remote_rmi4_get_irq_gpio(void)
+{
+	struct rmidev_data *dev_data = (struct rmidev_data *)rmidev->data;
+	return dev_data->pdata->irq_gpio;
+}
+
+static struct input_dev *remote_rmi4_get_input(void)
+{
+	struct rmidev_data *dev_data = (struct rmidev_data *)rmidev->data;
+	return dev_data->pdata->input_dev;
+}
+
+static struct i2c_client* remote_rmi4_get_i2c_client(void)
+{
+	struct rmidev_data *dev_data = (struct rmidev_data *)rmidev->data;
+	return dev_data->pdata->client;
+}
+
+static int remote_rmit_set_page(unsigned int address){
+	struct i2c_client* i2c_client = remote_rmi4_get_i2c_client();
+	unsigned char retry;
+	unsigned char buf[2];
+	struct i2c_msg msg[] = {
+		{
+			.addr = i2c_client->addr,
+			.flags = 0,
+			.len = 2,
+			.buf = buf,
+		}
+	};
+	buf[0] = 0xff;
+	buf[1] = ((address >> 8) & 0xFF);
+
+	for (retry = 0; retry < 2; retry++) {
+		if (i2c_transfer(i2c_client->adapter, msg, 1) == 1) {
+			break;
+		}
+		msleep(20);
+	}
+
+	if (retry == 2) {
+		return -EIO;
+	}
+	
+	return 0;
+}
+
+static int remote_rmit_put_page(void)
+{
+	struct i2c_client* i2c_client = remote_rmi4_get_i2c_client();
+	unsigned char retry;
+	unsigned char buf[2];
+	struct i2c_msg msg[] = {
+		{
+			.addr = i2c_client->addr,
+			.flags = 0,
+			.len = 2,
+			.buf = buf,
+		}
+	};
+	buf[0] = 0xff;
+	buf[1] = 0x00;
+
+	for (retry = 0; retry < 2; retry++) {
+		if (i2c_transfer(i2c_client->adapter, msg, 1) == 1) {
+			break;
+		}
+		msleep(20);
+	}
+
+	if (retry == 2) {
+		return -EIO;
+	}
+	
+	return 0;
+}
+
+
 int remote_rmi4_i2c_read(unsigned short addr, unsigned char *data, unsigned short length)
 {
 	int retval;
@@ -309,7 +394,7 @@ int remote_rmi4_i2c_read(unsigned short addr, unsigned char *data, unsigned shor
 	}
 
 exit:
-	remote_rmit_put_page(addr);
+	remote_rmit_put_page();
 
 	return retval;
 }
@@ -350,9 +435,21 @@ int remote_rmi4_i2c_write(unsigned short addr, unsigned char *data, unsigned sho
 	}
 
 exit:
-	remote_rmit_put_page(addr);
+	remote_rmit_put_page();
 
 	return retval;
+}
+
+int remote_rmi4_i2c_enable(bool enable)
+{
+	struct rmidev_data *dev_data = (struct rmidev_data *)rmidev->data;
+
+	if(enable){
+		*(dev_data->pdata->enable_remote) = 0;
+	}else{
+		*(dev_data->pdata->enable_remote) = 1;
+	}
+	return 0 ;
 }
 
 
@@ -441,6 +538,8 @@ static ssize_t rmidev_read(struct file *filp, char __user *buf,
 	if (count > (REG_ADDR_LIMIT - *f_pos))
 		count = REG_ADDR_LIMIT - *f_pos;
 
+	if(dev_data->pdata->pmutex)
+		mutex_lock(dev_data->pdata->pmutex);
 	mutex_lock(&(dev_data->file_mutex));
 
 	retval = remote_rmi4_i2c_read(
@@ -457,6 +556,8 @@ static ssize_t rmidev_read(struct file *filp, char __user *buf,
 
 clean_up:
 	mutex_unlock(&(dev_data->file_mutex));
+	if(dev_data->pdata->pmutex)
+		mutex_unlock(dev_data->pdata->pmutex);
 
 	return retval;
 }
@@ -491,6 +592,8 @@ static ssize_t rmidev_write(struct file *filp, const char __user *buf,
 	if (copy_from_user(tmpbuf, buf, count))
 		return -EFAULT;
 
+	if(dev_data->pdata->pmutex)
+		mutex_lock(dev_data->pdata->pmutex);
 	mutex_lock(&(dev_data->file_mutex));
 
 	retval = remote_rmi4_i2c_write(
@@ -502,7 +605,9 @@ static ssize_t rmidev_write(struct file *filp, const char __user *buf,
 
 
 	mutex_unlock(&(dev_data->file_mutex));
-
+	if(dev_data->pdata->pmutex)
+		mutex_unlock(dev_data->pdata->pmutex);
+	
 	return retval;
 }
 
@@ -605,8 +710,8 @@ static int rmidev_open(struct inode *inp, struct file *filp)
 	filp->private_data = dev_data;
 
 	mutex_lock(&(dev_data->file_mutex));
-
-	remote_rmi4_i2c_enable(false);
+	*(dev_data->pdata->enable_remote) = 1;
+	//remote_rmi4_i2c_enable(false);
 	dev_dbg(device_ptr,
 			"%s: Attention interrupt disabled\n",
 			__func__);
@@ -675,6 +780,8 @@ static void rmidev_device_cleanup(struct rmidev_data *dev_data)
 
 		unregister_chrdev_region(devno, 1);
 
+		remote_free_panel_data(dev_data->pdata);
+
 		dev_dbg(device_ptr,
 				"%s: rmidev device removed\n",
 				__func__);
@@ -708,17 +815,48 @@ static int rmidev_create_device_class(void)
 	return 0;
 }
 
-void remote_rmi4_delay_work(struct work_struct *work) {
+static void remote_rmi4_delay_work(struct work_struct *work) {
 	rmidev_create_attr(true) ;
 }
 
-int rmidev_init_device(void)
+struct remotepanel_data *remote_alloc_panel_data(void)
+{
+	if(rmidev)
+	{
+		printk("%s:remote panel data has alloc already null\n",__func__);
+		return NULL;
+	}
+
+	return kzalloc(sizeof(struct remotepanel_data), GFP_KERNEL);
+}
+
+static struct remotepanel_data *remote_free_panel_data(struct remotepanel_data *pdata)
+{
+	if(pdata)
+		kfree(pdata);
+	pdata = NULL;
+	return NULL;
+}
+
+
+
+//int rmidev_init_device(void)
+int register_remote_device(struct remotepanel_data *pdata)
 {
 	int retval;
 	dev_t dev_no;
-	struct rmidev_data *dev_data;
+	struct rmidev_data *dev_data = NULL;
 
-
+	if(pdata == NULL)
+	{
+		printk("%s:pdata is null\n",__func__);
+		return -1;
+	}
+	if(rmidev)
+	{
+		printk("%s:remote device has register already null\n",__func__);
+		return -1;
+	}	
 	rmidev = kzalloc(sizeof(*rmidev), GFP_KERNEL);
 	if (!rmidev) {
 		retval = -ENOMEM;
@@ -749,7 +887,8 @@ int rmidev_init_device(void)
 		retval = -ENOMEM;
 		goto err_dev_data;
 	}
-
+	
+	dev_data->pdata = pdata;
 
 	mutex_init(&dev_data->file_mutex);
 	dev_data->rmi_dev = rmidev;
@@ -782,6 +921,7 @@ int rmidev_init_device(void)
 	return 0;
 	
 err_char_device:
+	remote_free_panel_data(dev_data->pdata);
 	rmidev_device_cleanup(dev_data);
 	kfree(dev_data);
 
@@ -793,12 +933,13 @@ err_device_region:
 
 err_device_class:
 	kfree(rmidev);
-
+	rmidev = NULL;
 err_rmidev:
 	return retval;
 }
 
-void rmidev_remove_device(void)
+//void rmidev_remove_device(void)
+void unregister_remote_device(void)
 {
 	struct rmidev_data *dev_data;
 
@@ -835,6 +976,7 @@ static void __exit rmidev_module_exit(void)
 	
 	return;
 }
+
 module_init(rmidev_module_init);
 module_exit(rmidev_module_exit);
 

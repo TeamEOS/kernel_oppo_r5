@@ -49,6 +49,7 @@
 #include "oppo_tp_devices.h"
 
 #include <linux/input/mt.h>
+#include "synaptics_redremote.h"
 
 
 /*------------------------------------------------Global Define--------------------------------------------*/
@@ -156,6 +157,8 @@ static int tp_probe_ok = 0;
 static atomic_t is_touch;
 
 static DEFINE_SEMAPHORE(work_sem);
+static int DiagonalUpperLimit = 1100;
+static int DiagonalLowerLimit = 900;
 struct manufacture_info tp_info;
 static struct synaptics_ts_data *ts_g;
 static struct workqueue_struct *synaptics_wq = NULL;
@@ -180,6 +183,7 @@ static uint32_t clockwise;
 static uint32_t gesture;
 
 static uint32_t gesture_upload;
+static int gesture_enable = 0;
 
 static atomic_t double_enable;
 static int is_gesture_enable = 0;
@@ -309,10 +313,7 @@ static int synapitcs_ts_update(struct i2c_client *client, const uint8_t *data, u
 	static int fb_notifier_callback(struct notifier_block *self, unsigned long event, void *data);
 #endif
 
-#ifdef CONFIG_SYNAPTIC_RED
-		extern void rmidev_remove_device(void);
-extern int rmidev_init_device(void);
-#endif
+
 
 /*-------------------------------Using Struct----------------------------------*/
 struct point_info {
@@ -365,6 +366,7 @@ struct synaptics_ts_data {
 	int reset_gpio;
 	int enable2v8_gpio;
 	int max_num;
+	int enable_remote;
 	uint32_t irq_flags;
 	uint32_t max_x;
     uint32_t max_y;
@@ -397,12 +399,12 @@ struct synaptics_ts_data {
 	char fw_name[TP_FW_NAME_MAX_LEN];
 	char test_limit_name[TP_FW_NAME_MAX_LEN];
 	char fw_id[12];
-	
+	struct mutex mutex;
 
 };
 
 /*Virtual Keys Setting Start*/
-struct kobject *syna_properties_kobj;
+static struct kobject *syna_properties_kobj;
 static struct kobj_attribute qrd_virtual_keys_attr = {
     .attr = {
         .name = "virtualkeys."TPD_DEVICE,
@@ -581,13 +583,12 @@ static int tpd_hw_pwron(struct synaptics_ts_data *ts)
 		}
 	}
 	
-	if( ts->enable2v8_gpio > 0 )
-	{	
+	if( ts->enable2v8_gpio > 0 ) {	
 		TPD_DEBUG("synaptics:enable the enable2v8_gpio\n");
 		gpio_direction_output(ts->enable2v8_gpio, 1);		
 	}
 	
-	msleep(1);
+	mdelay(1);
 	if( vdd_1v8_exist ){
 	rc = regulator_enable( ts->vcc_i2c_1v8 );
 		if(rc){
@@ -595,11 +596,10 @@ static int tpd_hw_pwron(struct synaptics_ts_data *ts)
 			regulator_disable(ts->vdd_2v8);
 				return rc;
 		}
+		mdelay(3);
 	} 
 	
-	msleep(3);
-	if( ts->reset_gpio > 0 )
-	{	
+	if( ts->reset_gpio > 0 ) {	
 		TPD_DEBUG("synaptics:enable the reset_gpio\n");
 		gpio_direction_output(ts->reset_gpio, 1);		
 	}
@@ -655,7 +655,7 @@ static int synaptics_read_register_map(struct synaptics_ts_data *ts)
 		TPD_ERR("failed for page select!\n");
 		return -1;
 	}
-	if( is_project(OPPO_14043) || is_project(OPPO_14037) || is_project (OPPO_14045) || is_project (OPPO_14051) ){
+	if( is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_15057)|| is_project (OPPO_14045) || is_project (OPPO_14051) ){
 		F11_2D_QUERY_BASE = buf[0];
 		F11_2D_CMD_BASE = buf[1];
 		F11_2D_CTRL_BASE = buf[2]; 
@@ -699,7 +699,7 @@ static int synaptics_read_register_map(struct synaptics_ts_data *ts)
 				F34_FLASH_CTRL_BASE	= %x \n\
 				F34_FLASH_DATA_BASE	= %x \n\
 			   ", F34_FLASH_QUERY_BASE, F34_FLASH_CMD_BASE, F34_FLASH_CTRL_BASE, F34_FLASH_DATA_BASE);
-	if( is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14045) || is_project (OPPO_14051)){
+	if( is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_15057)|| is_project(OPPO_14045) || is_project (OPPO_14051)){
 		F01_RMI_QUERY11 = F11_2D_QUERY_BASE+11;
 		F01_RMI_CTRL00 = F01_RMI_CTRL_BASE;
 		F01_RMI_CTRL01 = F01_RMI_CTRL_BASE + 1;
@@ -742,7 +742,7 @@ static int synaptics_read_register_map(struct synaptics_ts_data *ts)
 	F51_CUSTOM_CTRL_BASE = buf[2]; 
 	F51_CUSTOM_DATA_BASE = buf[3];
 	F51_CUSTOM_CTRL00 = F51_CUSTOM_CTRL_BASE;
-	if( is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14045) || is_project(OPPO_14051)){
+	if( is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057) || is_project(OPPO_14045) || is_project(OPPO_14051)){
 		F51_CUSTOM_DATA11 = F51_CUSTOM_DATA_BASE;
 	}else{	
 		F51_CUSTOM_DATA04 = F51_CUSTOM_DATA_BASE;
@@ -754,7 +754,7 @@ static int synaptics_read_register_map(struct synaptics_ts_data *ts)
 			  ", F51_CUSTOM_QUERY_BASE, F51_CUSTOM_CMD_BASE, F51_CUSTOM_CTRL_BASE, F51_CUSTOM_DATA_BASE);  	
 			  
 #if TP_TEST_ENABLE	
-	if(is_project(OPPO_14005) || is_project(OPPO_14045)|| is_project (OPPO_14051)){
+	if(is_project(OPPO_14005) || is_project(OPPO_15011) || is_project(OPPO_14045)|| is_project (OPPO_14051)){
 		ret = i2c_smbus_write_byte_data(ts->client, 0xff, 0x01); 
 		if(ret < 0){
 			TPD_ERR("synaptics_read_register_map: failed for page select\n");
@@ -804,7 +804,7 @@ static int synaptics_enable_interrupt_for_gesture(struct synaptics_ts_data *ts, 
 		return -1;
 	}
 	
-	if ( is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14045) || is_project (OPPO_14051)) {
+	if ( is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_15057)|| is_project (OPPO_14051)) {
 		ret = i2c_smbus_read_byte_data(ts->client, F11_2D_CTRL00);
 		if(ret < 0) {
 			TPD_DEBUG("read reg F11_2D_CTRL00 failed\n");
@@ -822,10 +822,10 @@ static int synaptics_enable_interrupt_for_gesture(struct synaptics_ts_data *ts, 
 				return -1;
 			}		
 		} else {
-			if(is_project(OPPO_14037) || is_project(OPPO_14043)){
+			if(is_project(OPPO_14037)|| is_project(OPPO_15057) || is_project(OPPO_14043)){
 				status_int = (ret & 0xF8) | 0x01;
 			}else{
-				status_int = (ret & 0xF8) | 0x01;
+				status_int = ret & 0xF8;
 			}
 			/*disable gpio wake system through intterrupt*/	
 			disable_irq_wake(ts->client->irq);
@@ -863,7 +863,7 @@ static int synaptics_enable_interrupt_for_gesture(struct synaptics_ts_data *ts, 
 				interrupt failed,abs_int =%d\n",__func__,abs_status_int);
 			return -1;
 		}		
-	}else if( is_project(OPPO_14005) ){
+	}else if( is_project(OPPO_14005) || is_project(OPPO_15011) ){
 		ret = i2c_smbus_read_i2c_block_data( ts->client, F12_2D_CTRL20, 3, &(reportbuf[0x0]) );
 		if( ret < 0 ){
 			TPD_ERR("read reg F12_2D_CTRL20 failed\n");
@@ -900,7 +900,7 @@ static int synaptics_glove_mode_enable(struct synaptics_ts_data *ts)
 	
 	TPD_DEBUG("glove mode enable\n");
 	/* page select = 0x4 */	
-	if( is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14045) || is_project (OPPO_14051)){
+	if( is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057) || is_project(OPPO_14045) || is_project (OPPO_14051)){
 		if(1 == atomic_read(&glove_enable)) {	    
 		/*0x00:enable glove mode,0x02:disable glove mode,*/
 			ret = i2c_smbus_write_byte_data(ts->client, 0xff, 0x4); 
@@ -1042,6 +1042,18 @@ static int synaptics_init_panel(struct synaptics_ts_data *ts)
 			TPD_ERR("%s failed for mode select\n",__func__);
 		}
 	} 
+	//chenggang.li@BSP add for 14045 will delete
+	if(is_project(OPPO_14045) || is_project(OPPO_14051)){
+			/*  change Doze Interval to 30ms*/
+		ret = i2c_smbus_write_byte_data(ts->client, F01_RMI_CTRL00+2, 3);
+		if( ret < 0 ){
+			msleep(150);
+			ret = i2c_smbus_write_byte_data(ts->client, F01_RMI_CTRL00+2, 3); 
+			if( ret < 0 ){
+				TPD_ERR("%s failed for mode select\n",__func__);
+			}
+		} 
+	}
 	
     /*enable absolutePosFilter,rezero*/
 	return ret;
@@ -1097,6 +1109,10 @@ static void int_state(struct synaptics_ts_data *ts)
 	int F12_2D_CTRL20;
 	
 	F12_2D_CTRL20 = F12_2D_CTRL_BASE + 0x07;
+	
+	if(is_project(OPPO_14045))
+		return;
+	
 	ret = i2c_smbus_write_byte_data(ts->client, F01_RMI_CMD00, 0x01);
 	if(ret){
 		TPD_ERR("int_state:cannot reset touch panel \n");
@@ -1109,7 +1125,7 @@ static void int_state(struct synaptics_ts_data *ts)
 #endif
 
 	if( is_gesture_enable == 1 ){
-		if(is_project(OPPO_14005)){
+		if(is_project(OPPO_14005) || is_project(OPPO_15011)){
 			ret = i2c_smbus_read_i2c_block_data( ts->client, F12_2D_CTRL20, 3, &(reportbuf[0x0]) );
 			reportbuf[2] |= 0x02 ;
 			ret = i2c_smbus_write_i2c_block_data( ts->client, F12_2D_CTRL20, 3, &(reportbuf[0x0]) );
@@ -1170,6 +1186,41 @@ static int synaptics_rmi4_i2c_read(struct synaptics_ts_data *ts,
 	return retval;
 }
 
+static int synaptics_rmi4_i2c_write(struct synaptics_ts_data *ts,
+		unsigned short addr, unsigned char *data, unsigned short length)
+{
+	int retval;
+	unsigned char retry;
+	unsigned char buf[length + 1];
+	struct i2c_msg msg[] = {
+		{
+			.addr = ts->client->addr,
+			.flags = 0,
+			.len = length + 1,
+			.buf = buf,
+		}
+	};
+
+	buf[0] = addr & 0xff;
+	memcpy(&buf[1], &data[0], length);
+
+	for (retry = 0; retry < 2; retry++) {
+		if (i2c_transfer(ts->client->adapter, msg, 1) == 1) {
+			retval = length;
+			break;
+		}
+		msleep(20);
+	}
+	
+	if( retry == 2 ){
+		dev_err(&ts->client->dev,
+				"%s: I2C read over retry limit\n",
+				__func__);
+		retval = -5;
+	}
+	return retval;
+}
+
 //chenggang.li@BSP.TP modified for oppo 2014-08-05 gesture_judge
 /***************start****************/
 #ifdef SUPPORT_GESTURE
@@ -1181,14 +1232,11 @@ static void synaptics_get_coordinate_point(struct synaptics_ts_data *ts)
 
 	TPD_DEBUG("%s is called!\n",__func__);
 	ret = i2c_smbus_write_byte_data(ts->client, 0xff, 0x4); 
-	if(is_project(OPPO_14043) || is_project(OPPO_14037)){
+	if( is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057) || is_project(OPPO_14045) || is_project(OPPO_14051) ){
 		ret = i2c_smbus_read_i2c_block_data(ts->client, F51_CUSTOM_DATA11, 8, &(coordinate_buf[0]));
 		ret = i2c_smbus_read_i2c_block_data(ts->client, F51_CUSTOM_DATA11 + 8, 8, &(coordinate_buf[8]));
 		ret = i2c_smbus_read_i2c_block_data(ts->client, F51_CUSTOM_DATA11 + 16, 8, &(coordinate_buf[16])); 
 		ret = i2c_smbus_read_i2c_block_data(ts->client, F51_CUSTOM_DATA11 + 24, 1, &(coordinate_buf[24]));
-	}else if( is_project(OPPO_14045) || is_project (OPPO_14051) ){
-		ret = i2c_smbus_read_byte_data(ts->client, F11_2D_DATA38); 	
-		ret = synaptics_rmi4_i2c_read(ts, F11_2D_DATA39, &(coordinate_buf[0]), 11);
 	}else{
 		ret = i2c_smbus_read_i2c_block_data(ts->client, F51_CUSTOM_DATA04, 8, &(coordinate_buf[0])); // 14045 use F51_CUSTOM_DATA05
 		ret = i2c_smbus_read_i2c_block_data(ts->client, F51_CUSTOM_DATA04 + 8, 8, &(coordinate_buf[8]));
@@ -1204,18 +1252,18 @@ static void synaptics_get_coordinate_point(struct synaptics_ts_data *ts)
 	
 	ret = i2c_smbus_write_byte_data(ts->client, 0xff, 0x0);
 	if( is_project(OPPO_14045) || is_project(OPPO_14051) ){
-		Point_start.x = 311;
-		Point_start.y = 883;
-		Point_end.x = 403;
-		Point_end.y = 1367;
-		Point_1st.x = 799;
-		Point_1st.y =1087;
-		Point_2nd.x = 0;
-		Point_2nd.y = 0;
-		Point_3rd.x = 0;
-		Point_3rd.y = 0;
-		Point_4th.x = 0;
-		Point_4th.y = 0;
+		Point_start.x = (coordinate_buf[0] | (coordinate_buf[1] << 8)) * LCD_WIDTH/ (ts->max_x);
+		Point_start.y = (coordinate_buf[2] | (coordinate_buf[3] << 8)) * LCD_HEIGHT/ (1280);
+		Point_end.x   = (coordinate_buf[4] | (coordinate_buf[5] << 8)) * LCD_WIDTH / (ts->max_x);
+		Point_end.y   = (coordinate_buf[6] | (coordinate_buf[7] << 8)) * LCD_HEIGHT / (1280);
+		Point_1st.x   = (coordinate_buf[8] | (coordinate_buf[9] << 8)) * LCD_WIDTH / (ts->max_x);
+		Point_1st.y   = (coordinate_buf[10] | (coordinate_buf[11] << 8)) * LCD_HEIGHT / (1280);
+		Point_2nd.x   = (coordinate_buf[12] | (coordinate_buf[13] << 8)) * LCD_WIDTH / (ts->max_x);
+		Point_2nd.y   = (coordinate_buf[14] | (coordinate_buf[15] << 8)) * LCD_HEIGHT / (1280);
+		Point_3rd.x   = (coordinate_buf[16] | (coordinate_buf[17] << 8)) * LCD_WIDTH / (ts->max_x);
+		Point_3rd.y   = (coordinate_buf[18] | (coordinate_buf[19] << 8)) * LCD_HEIGHT / (1280);
+		Point_4th.x   = (coordinate_buf[20] | (coordinate_buf[21] << 8)) * LCD_WIDTH / (ts->max_x);
+		Point_4th.y   = (coordinate_buf[22] | (coordinate_buf[23] << 8)) * LCD_HEIGHT / (1280);	
 	}else{
 		Point_start.x = (coordinate_buf[0] | (coordinate_buf[1] << 8)) * LCD_WIDTH/ (ts->max_x);
 		Point_start.y = (coordinate_buf[2] | (coordinate_buf[3] << 8)) * LCD_HEIGHT/ (1920);
@@ -1287,7 +1335,7 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 	if (ret < 0) {
 		TPDTM_DMESG("failed to transfer the data, ret = %d\n", ret);
 	}
-	if( is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14045) || is_project(OPPO_14051) ) {
+	if( is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057) || is_project(OPPO_14045) || is_project(OPPO_14051) ) {
 		gesture_sign = i2c_smbus_read_byte_data(ts->client, F11_2D_DATA38);		
 		ret = i2c_smbus_read_i2c_block_data(ts->client,  F11_2D_DATA39, 9, &(gesture_buffer[0]));	  
 		ret = i2c_smbus_write_byte_data(ts->client, 0xff, 0x4); 
@@ -1329,7 +1377,7 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 		 } 
 	 }else{
 		//chenggang.li@BSP.TP modified for oppo 2014-08-08		
-		if( is_project(OPPO_14005) )
+		if( is_project(OPPO_14005) || is_project(OPPO_15011) )
 			F12_2D_DATA04 = 0x0008;
 		ret = i2c_smbus_write_byte_data(ts->client, 0xff, 0x00); 	    
 		ret = i2c_smbus_read_i2c_block_data(ts->client,  F12_2D_DATA04, 5, &(gesture_buffer[0]));	  
@@ -1395,7 +1443,7 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 			input_report_key(ts->input_dev, KEY_F4, 0);
 			input_sync(ts->input_dev);
     }else{
-		if(is_project(OPPO_14005)){
+		if(is_project(OPPO_14005) || is_project(OPPO_15011)){
 			ret = i2c_smbus_read_i2c_block_data( ts->client, F12_2D_CTRL20, 3, &(reportbuf[0x0]) );
 			ret = reportbuf[2] & 0x20;
 			if(ret == 0)
@@ -1502,7 +1550,7 @@ static void int_touch_s3508(struct synaptics_ts_data *ts)
 	points.x = 0;
 	points.y = 0;
 	points.z = 0;
-	if(	is_project(OPPO_14005) || is_project(OPPO_14023) ){
+	if(	is_project(OPPO_14005) || is_project(OPPO_15011) || is_project(OPPO_14023) ){
 		ret = i2c_smbus_read_word_data(ts->client, F12_2D_DATA_BASE+0x03);
 	if( (ret&0x03FF) != 0 ){	
 			ret = synaptics_rmi4_i2c_read(ts, F12_2D_DATA_BASE, buf, 80);
@@ -1562,73 +1610,91 @@ static void int_key_report_s3508(struct synaptics_ts_data *ts)
 {
     int ret= 0;
 	int F1A_0D_DATA00=0x00;
-	
+	int F51_CUSTOM_DATA32=0x19;
 	
 	TPD_DEBUG("%s is called!\n",__func__);
-	if(is_project(OPPO_14005))
-		i2c_smbus_write_byte_data(ts->client, 0xff, 0x02);
-	else
-		i2c_smbus_write_byte_data(ts->client, 0xff, 0x03);
-	ret = i2c_smbus_read_byte_data(ts->client, F1A_0D_DATA00);
-	if(is_project(OPPO_14005)){
-		if((ret & 0x01) && !(ts->pre_btn_state & 0x01))//menu
-		{          
-			if( 0 == atomic_read(&is_touch) ){
-				input_report_key(ts->input_dev, KEY_MENU, 1);
+	if(is_gesture_enable == 1)
+	{
+		if(is_project(OPPO_14005) || is_project(OPPO_15011)){
+			i2c_smbus_write_byte_data(ts->client, 0xff, 0x04);
+			ret = i2c_smbus_read_byte_data(ts->client, F51_CUSTOM_DATA32);
+			if( (ret & 0x07) != 0 ){
+				gesture_upload = DouTap;
+				input_report_key(ts->input_dev, KEY_F4, 1);
+				input_sync(ts->input_dev);
+				input_report_key(ts->input_dev, KEY_F4, 0);
 				input_sync(ts->input_dev);
 			}
-		}else if(!(ret & 0x01) && (ts->pre_btn_state & 0x01)){
-			input_report_key(ts->input_dev, KEY_MENU, 0);
-			input_sync(ts->input_dev); 
 		}
-						  
-		if((ret & 0x02) && !(ts->pre_btn_state & 0x02))//home
-		{ 
-			if( 0 == atomic_read(&is_touch) ){
-				input_report_key(ts->input_dev, KEY_HOMEPAGE, 1);
-				input_sync(ts->input_dev);	
+	
+	}else{
+		if(is_project(OPPO_14005) || is_project(OPPO_15011))
+			i2c_smbus_write_byte_data(ts->client, 0xff, 0x02);
+		else
+			i2c_smbus_write_byte_data(ts->client, 0xff, 0x03);
+		ret = i2c_smbus_read_byte_data(ts->client, F1A_0D_DATA00);
+		if(is_project(OPPO_14005) || is_project(OPPO_15011)){
+			if((ret & 0x01) && !(ts->pre_btn_state & 0x01))//menu
+			{          
+				if( 0 == atomic_read(&is_touch) ){
+					input_report_key(ts->input_dev, KEY_MENU, 1);
+					input_sync(ts->input_dev);
+				}
+			}else if(!(ret & 0x01) && (ts->pre_btn_state & 0x01)){
+				input_report_key(ts->input_dev, KEY_MENU, 0);
+				input_sync(ts->input_dev); 
 			}
-		}else if(!(ret & 0x02) && (ts->pre_btn_state & 0x02)){
+						  
+			if((ret & 0x02) && !(ts->pre_btn_state & 0x02))//home
+			{ 
+				if( 0 == atomic_read(&is_touch) ){
+					input_report_key(ts->input_dev, KEY_HOMEPAGE, 1);
+					input_sync(ts->input_dev);	
+					
+				}
+			
+			}else if(!(ret & 0x02) && (ts->pre_btn_state & 0x02)){
 				input_report_key(ts->input_dev, KEY_HOMEPAGE, 0);
 				input_sync(ts->input_dev);
-		}
-				
-		if((ret & 0x04) && !(ts->pre_btn_state & 0x04))//reback
-		{	
-			if( 0 == atomic_read(&is_touch) ){
-				input_report_key(ts->input_dev, KEY_BACK, 1);
-				input_sync(ts->input_dev);
 			}
-		}else if(!(ret & 0x04) && (ts->pre_btn_state & 0x04)){
+					
+			if((ret & 0x04) && !(ts->pre_btn_state & 0x04))//reback
+			{	
+				if( 0 == atomic_read(&is_touch) ){
+					input_report_key(ts->input_dev, KEY_BACK, 1);
+					input_sync(ts->input_dev);
+				}
+			}else if(!(ret & 0x04) && (ts->pre_btn_state & 0x04)){
 				input_report_key(ts->input_dev, KEY_BACK, 0);
 				input_sync(ts->input_dev); 
-		}
-	}else{
-		if((ret & 0x01) && !(ts->pre_btn_state & 0x01))//menu
-		{          
-			input_report_key(ts->input_dev, KEY_BACK, 1);//KEY_MENU
-			input_sync(ts->input_dev);
-		}else if(!(ret & 0x01) && (ts->pre_btn_state & 0x01)){
-			input_report_key(ts->input_dev, KEY_BACK, 0);
-			input_sync(ts->input_dev); 
-		}
-						  
-		if((ret & 0x02) && !(ts->pre_btn_state & 0x02))//home
-		{ 
-			input_report_key(ts->input_dev, KEY_HOMEPAGE, 1);//KEY_HOMEPAGE
-			input_sync(ts->input_dev);	
-		}else if(!(ret & 0x02) && (ts->pre_btn_state & 0x02)){
-			input_report_key(ts->input_dev, KEY_HOMEPAGE, 0);
-			input_sync(ts->input_dev);
-		}
-				
-		if((ret & 0x04) && !(ts->pre_btn_state & 0x04))//reback
-		{				
-			input_report_key(ts->input_dev, KEY_MENU, 1);//KEY_BACK
-			input_sync(ts->input_dev);
-		}else if(!(ret & 0x04) && (ts->pre_btn_state & 0x04)){
-			input_report_key(ts->input_dev, KEY_MENU, 0);
-			input_sync(ts->input_dev); 
+			}
+		}else{
+			if((ret & 0x01) && !(ts->pre_btn_state & 0x01))//menu
+			{          
+				input_report_key(ts->input_dev, KEY_BACK, 1);//KEY_MENU
+				input_sync(ts->input_dev);
+			}else if(!(ret & 0x01) && (ts->pre_btn_state & 0x01)){
+				input_report_key(ts->input_dev, KEY_BACK, 0);
+				input_sync(ts->input_dev); 
+			}
+							  
+			if((ret & 0x02) && !(ts->pre_btn_state & 0x02))//home
+			{ 
+				input_report_key(ts->input_dev, KEY_HOMEPAGE, 1);//KEY_HOMEPAGE
+				input_sync(ts->input_dev);	
+			}else if(!(ret & 0x02) && (ts->pre_btn_state & 0x02)){
+				input_report_key(ts->input_dev, KEY_HOMEPAGE, 0);
+				input_sync(ts->input_dev);
+			}
+					
+			if((ret & 0x04) && !(ts->pre_btn_state & 0x04))//reback
+			{				
+				input_report_key(ts->input_dev, KEY_MENU, 1);//KEY_BACK
+				input_sync(ts->input_dev);
+			}else if(!(ret & 0x04) && (ts->pre_btn_state & 0x04)){
+				input_report_key(ts->input_dev, KEY_MENU, 0);
+				input_sync(ts->input_dev); 
+			}
 		}
 	}
 	ts->pre_btn_state = ret & 0x07;
@@ -1662,7 +1728,7 @@ static int ts_gpio_pinctrl_init(struct synaptics_ts_data *ts)
     return 1;
 	
 }
-
+extern bool flag_lcd_off;
 static void synaptics_ts_work_func(struct work_struct *work)
 {
 	int ret;
@@ -1671,12 +1737,16 @@ static void synaptics_ts_work_func(struct work_struct *work)
 	uint8_t inte = 0;
 	uint8_t i2c_err_count = 0;	
 	struct synaptics_ts_data *ts = container_of(work, struct synaptics_ts_data, work);
-
 	
-	if(ts->loading_fw){
+	if((is_project(OPPO_14045) || is_project(OPPO_14051)) && flag_lcd_off == true){
+		 return;
+	}
+		
+	if(ts->loading_fw  || ts->enable_remote){
 		enable_irq(ts_g->client->irq);
 		return;
 	} 
+	
 	memset(buf, 0, sizeof(buf));
 	down(&work_sem);
 	if( is_suspend == 1 )
@@ -1699,7 +1769,7 @@ static void synaptics_ts_work_func(struct work_struct *work)
 	inte = (ret & 0x7f00)>>8;
 	if(status)	
 		int_state(ts);
-	if( is_project(OPPO_14005) ){
+	if( is_project(OPPO_14005) || is_project(OPPO_15011) ){
 		if( inte & 0x04 ) {
 			int_touch_s3508(ts);
 		}
@@ -1710,18 +1780,15 @@ static void synaptics_ts_work_func(struct work_struct *work)
 	}
 	
 	if( is_project(OPPO_14045) || is_project (OPPO_14051)){
-		if( inte & 0x40 ){
-			if( 0 == atomic_read(&is_touch) )
-				int_key_report_s3508(ts);
-		}
+		if( inte & 0x40 )
+			int_key_report_s3508(ts);
 		if( inte & 0x04 )
 			int_touch_s3203(ts);
 	}
 	
-	if(is_project(OPPO_14043) || is_project(OPPO_14037) ){
+	if(is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057) ){
 		if( inte & 0x04 )
-				int_touch_s3203(ts);
-		
+				int_touch_s3203(ts);		
 	}
 	
 FREE_IRQ:
@@ -1731,7 +1798,7 @@ FREE_IRQ:
 }
 
 //chenggang.li@BSP add for 14005 pro charge
-void enable_aggressive_segmentation(bool enable)
+static void enable_aggressive_segmentation(bool enable)
 {
 	uint8_t  buf[7];
 	int ret;
@@ -1759,7 +1826,7 @@ void enable_aggressive_segmentation(bool enable)
 	}
 	
 }
-EXPORT_SYMBOL(enable_aggressive_segmentation);
+//EXPORT_SYMBOL(enable_aggressive_segmentation);
 
 
 #ifndef TPD_USE_EINT
@@ -1830,15 +1897,34 @@ static int tp_double_write_func(struct file *file, const char __user *buffer, si
 	sscanf(buf, "%d", &ret);
 	if( (ret == 0 )||(ret == 1) )
 			atomic_set(&double_enable, ret);	
-	switch(ret){
-		case 0:
-			TPD_ERR("tp_guesture_func will be disable\n");
-			break;
-		case 1:
-			TPD_ERR("tp_guesture_func will be enable\n");
-			break;
-		default:
-			TPD_ERR("Please enter 0 or 1 to open or close the double-tap function\n");
+		if(gesture_enable == 1)
+	{
+		switch(ret){
+			case 0:
+				TPD_ERR("tp_guesture_func will be disable\n");
+				ret = synaptics_enable_interrupt_for_gesture(ts_g, 0); 
+				if( ret<0 )
+					ret = synaptics_enable_interrupt_for_gesture(ts_g, 0); 
+				ret = i2c_smbus_write_byte_data(ts_g->client, F01_RMI_CTRL00, 0x01); 
+				if( ret < 0 ){
+					TPD_ERR("write F01_RMI_CTRL00 failed\n");
+					return -1;
+				}
+				break;
+			case 1:
+				TPD_ERR("tp_guesture_func will be enable\n");
+				ret = i2c_smbus_write_byte_data(ts_g->client, F01_RMI_CTRL00, 0x80); 
+				if( ret < 0 ){
+					TPD_ERR("write F01_RMI_CTRL00 failed\n");
+					return -1;
+				}
+				ret = synaptics_enable_interrupt_for_gesture(ts_g, 1); 
+				if( ret<0 )
+					ret = synaptics_enable_interrupt_for_gesture(ts_g, 1); 
+				break;
+			default:
+				TPD_ERR("Please enter 0 or 1 to open or close the double-tap function\n");
+		}
 	}
 	return count;
 }
@@ -1858,6 +1944,51 @@ static int coordinate_proc_read_func(struct file *file, char __user *user_buf, s
 }
 #endif
 
+//chenggang.li@bsp add 14045
+static char buffer_data[128];
+static void synaptics_select_regieter(uint16_t address, int count , char *buffer_data)
+{
+	int i,len,tot=0;
+	uint8_t ret;
+	struct synaptics_ts_data *ts;
+	ts = ts_g;
+	TPD_ERR("%s:is called\n",__func__);
+	TPD_ERR("the address is 0x%x\n",address);
+	if(count>8)
+		count = 8;
+		
+	for(i=0;i<count;i++){
+		TPD_ERR("0x0013+%d is 0x%x\n", i,0xF9A3+i);
+		ret = i2c_smbus_read_byte_data(ts_g->client,0x00F9A3+i);
+		TPD_ERR("ret is -----0x%x-----------\n",ret);
+		len = sprintf(buffer_data+tot,"0x%02x  ",ret);
+		tot+=len;
+	}
+	buffer_data[tot]='\0';
+	TPD_ERR("buffer_data is %s\n",buffer_data);
+}
+
+static int read_base_register_address(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
+{
+	int ret;
+	char page[PAGESIZE];
+	TPD_ERR("%s is called\n",__func__);
+	ret = sprintf(page,"%s", buffer_data);
+	ret = simple_read_from_buffer(user_buf, count, ppos, page, strlen(page));
+	return ret;
+}
+static int write_base_register_address(struct file *file, const char __user *buffer, size_t count, loff_t *ppos)
+{
+	char buf[24];
+	int data,cnt;
+	size_t off;
+
+	strcpy (buf,buffer);
+	cnt = sscanf(buf,"%x %d",&off, &data);
+	TPD_ERR("off is 0x%x; data is %d\n",off,data);
+	synaptics_select_regieter(off,data,buffer_data);
+	return count;
+}
 
 #ifdef SUPPORT_GLOVES_MODE
 static int tp_glove_read_func(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
@@ -2034,7 +2165,7 @@ static ssize_t tp_baseline_show(struct device_driver *ddri, char *buf)
 		TPDTM_DMESG("step 1: select report type 0x03 failed \n");
 		//return sprintf(buf, "i2c err!");
 	}
-	if(is_project(OPPO_14043) || is_project(OPPO_14037)){	
+	if(is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057)){	
 		ret = i2c_smbus_read_byte_data(ts_g->client,F54_ANALOG_CONTROL_BASE+8);
 		tmp_old = ret&0xff;
 		printk("ret = %x ,tmp_old =%x ,tmp_new = %x\n",ret,tmp_old,(tmp_old & 0xef));
@@ -2136,7 +2267,7 @@ static ssize_t tp_rawdata_show(struct device_driver *ddri, char *buf)
 			num_read_chars += sprintf(&(buf[num_read_chars]), "%3d ", delta_baseline[x][y]);
 		}	 
 	}
-	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14045) || is_project (OPPO_14051)){
+	if(is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057) || is_project(OPPO_14045) || is_project (OPPO_14051)){
 		ret = i2c_smbus_write_byte_data(ts_g->client,F54_ANALOG_COMMAND_BASE,0X02);
 	}
     delay_qt_ms(60);
@@ -2341,7 +2472,7 @@ TEST_WITH_CBC_3203:
 	
 	TPDTM_DMESG("\nstep 4:check rx-rx short\n");
 //step 4:check rx-rx short
-	if(is_project(OPPO_14037))
+	if(is_project(OPPO_14037)|| is_project(OPPO_15057))
 	{
 		for(x = 0;x < RX_NUM; x++) {
 			for(y = 0; y < RX_NUM; y++) {
@@ -2529,10 +2660,10 @@ TEST_WITH_CBC_s3508:
                 sys_write(fd, data_buf, strlen(data_buf));
             }
 			TPD_DEBUG("baseline_data is %d\n", baseline_data);
-			if( (y < (RX_NUM-1)) && (x < TX_NUM-3) ){ 
+			if( (y<(RX_NUM-1) ) && (x<TX_NUM-3) ){ 
 				TPD_DEBUG("RX_NUM is %d,TX_NUM is %d\n", RX_NUM, TX_NUM);
 				TPD_DEBUG("%d,",baseline_data);
-				TPD_DEBUG("Synaptic:touchpanel;baseline_data is %d,TPK_array_limit[%d*2]=%d,TPK_array_limit[%d*2+1]=%d\n ",baseline_data,count,*(baseline_data_test+count*2),count,*(baseline_data_test+count*2+1));
+				TPD_ERR("Synaptic:touchpanel;baseline_data is %d,TPK_array_limit[%d*2]=%d,TPK_array_limit[%d*2+1]=%d\n ",baseline_data,count,*(baseline_data_test+count*2),count,*(baseline_data_test+count*2+1));
 
 				if((baseline_data < *(baseline_data_test+count*2)) || (baseline_data > *(baseline_data_test+count*2+1))){
 						TPD_ERR("Synaptic:touchpanel failed---------------;baseline_data is %d,TPK_array_limit[%d*2]=%d,TPK_array_limit[%d*2+1]=%d\n ",baseline_data,count,*(baseline_data_test+count*2),count,*(baseline_data_test+count*2+1));
@@ -2542,16 +2673,18 @@ TEST_WITH_CBC_s3508:
 					} 
 			}
 			
-			//test virtual key
-			if( (y==(RX_NUM-1)) && (x>= TX_NUM-3) ){
-					TPD_ERR("synaptics:test virtual key!!!!!!!!!!!!!!!!!!!!!!!!\n");
-					TPD_DEBUG("Synaptic:test virtual key;baseline_data is %d,TPK_array_limit[%d*2]=%d,TPK_array_limit[%d*2+1]=%d\n ",baseline_data,count,*(baseline_data_test+count*2),count,*(baseline_data_test+count*2+1));
-					if((baseline_data < *(baseline_data_test+count*2)) || (baseline_data > *(baseline_data_test+count*2+1))){
-						TPD_ERR("Synaptic:test virtual key failed------------;baseline_data is %d,TPK_array_limit[%d*2]=%d,TPK_array_limit[%d*2+1]=%d\n ",baseline_data,count,*(baseline_data_test+count*2),count,*(baseline_data_test+count*2+1));
-						num_read_chars += sprintf(&(buf[num_read_chars]), "0 raw data erro baseline_data[%d][%d]=%d[%d,%d]\n",x,y,baseline_data,*(baseline_data_test+count*2),	*(baseline_data_test+count*2+1));
-						error_count++;
-						goto END;
-					} 
+			if(!is_project(OPPO_15011)){
+				//test virtual key
+				if( (y==(RX_NUM-1)) && (x>= TX_NUM-3) ){
+						TPD_ERR("synaptics:test virtual key,y= %d ,x = %d\n",y,x);
+						TPD_ERR("Synaptic:test virtual key;baseline_data is %d,TPK_array_limit[%d*2]=%d,TPK_array_limit[%d*2+1]=%d\n ",baseline_data,count,*(baseline_data_test+count*2),count,*(baseline_data_test+count*2+1));
+						if((baseline_data < *(baseline_data_test+count*2)) || (baseline_data > *(baseline_data_test+count*2+1))){
+							TPD_ERR("Synaptic:test virtual key failed------------;baseline_data is %d,TPK_array_limit[%d*2]=%d,TPK_array_limit[%d*2+1]=%d\n ",baseline_data,count,*(baseline_data_test+count*2),count,*(baseline_data_test+count*2+1));
+							num_read_chars += sprintf(&(buf[num_read_chars]), "0 raw data erro baseline_data[%d][%d]=%d[%d,%d]\n",x,y,baseline_data,*(baseline_data_test+count*2),	*(baseline_data_test+count*2+1));
+							error_count++;
+							goto END;
+						} 
+				}
 			}
 			count++;
 		}
@@ -2631,8 +2764,72 @@ END:
 	return num_read_chars;
 }
 
-
-
+static void setfreqtab(int tab)
+{
+	int ret = 0;
+	uint8_t *freqtab1 = NULL;
+	int i;
+	
+	if(ts_g == NULL)
+		return;
+		
+	freqtab1 = kzalloc(132,GFP_KERNEL);
+	if(freqtab1 == NULL){
+		return ;
+	}
+	
+	ret = i2c_smbus_write_byte_data(ts_g->client,0xff,0x01);
+	ret = synaptics_rmi4_i2c_read(ts_g,0x4f,freqtab1,132);
+	if(ret < 0)
+	{
+		 printk("read 0x14f error\n");   
+	}
+	
+	for(i = 0;i < 132;i++)
+	{	
+		if(tab*11 == i)
+		{
+			freqtab1[i] = freqtab1[i]&0x7F;
+		}else if(i%11 == 0)
+		{
+			freqtab1[i] = freqtab1[i]|0x80;
+		}
+	}
+	ret = i2c_smbus_write_byte_data(ts_g->client,0xff,0x01);
+	ret = synaptics_rmi4_i2c_write(ts_g,0x4F,freqtab1,132);
+	if(ret < 0)
+	{
+		 printk("write 0x14f error\n");   
+	} 
+	
+	printk("setfreqtab:\n");
+	
+	for(i = 0;i < 132;i++)
+	{
+		printk("%x ",freqtab1[i]);
+	}
+	
+	if(tab < 6)
+	{
+		ret = i2c_smbus_write_byte_data(ts_g->client,0xff,0x01);
+		ret = i2c_smbus_write_byte_data(ts_g->client,0x4A,0x04);
+		if (ret < 0) {
+			TPD_ERR("%s: i2c_smbus_write_byte_data failed \n",__func__);
+		}	
+	}else
+	{
+		ret = i2c_smbus_write_byte_data(ts_g->client,0xff,0x01);
+		ret = i2c_smbus_write_byte_data(ts_g->client,0x4A,0x02);
+		if (ret < 0) {
+			TPD_ERR("%s: i2c_smbus_write_byte_data failed \n",__func__);
+		}
+	}
+	ret = i2c_smbus_write_word_data(ts_g->client,F54_ANALOG_COMMAND_BASE,0x04);
+	checkCMD();
+	kfree(freqtab1);
+	freqtab1 = NULL;
+	return;
+}
 static ssize_t synaptics_rmi4_baseline_show_s4291(struct device *dev, char *buf, bool savefile)	
 {
 	ssize_t num_read_chars = 0;		
@@ -2767,6 +2964,113 @@ TEST_WITH_CBC_4291:
 	ret = i2c_smbus_read_byte_data(ts_g->client,F54_ANALOG_CONTROL_BASE+7);
 	TPDTM_DMESG("[s3202]tem_new end = %x",ret&0xff);
 	
+	if(is_project(OPPO_14045))
+	{
+		int16_t *rawimage1 = NULL;
+		int16_t *rawimage2 = NULL;
+		int rawdataflag = 0;
+		
+		rawimage1 = kzalloc(sizeof(int16_t)*512,GFP_KERNEL);
+		if(rawimage1 == NULL){
+			return 1;
+		}
+		
+		rawimage2 = kzalloc(sizeof(int16_t)*512,GFP_KERNEL);
+		if(rawimage2 == NULL){
+			return 1;
+		}
+
+		setfreqtab(0);
+		
+	GETRAWIMAGEDATA2:	
+	
+		ret = i2c_smbus_write_byte_data(ts_g->client,F54_ANALOG_DATA_BASE,0x03);//select report type 0x03
+		if (ret < 0) {
+			TPD_ERR("read_baseline: i2c_smbus_write_byte_data failed \n");
+			goto END;
+		}	
+		ret = i2c_smbus_read_byte_data(ts_g->client,F54_ANALOG_CONTROL_BASE+7);
+		tmp_old = ret&0xff;
+
+		tmp_new = tmp_old | 0x10;
+		printk("ret = %x ,tmp_old =%x ,tmp_new = %x\n",ret,tmp_old, tmp_new);
+		ret = i2c_smbus_write_byte_data(ts_g->client,F54_ANALOG_CONTROL_BASE+7,(tmp_old | 0x10));
+		TPDTM_DMESG("Test with cbc\n");	
+		//Forbid NoiseMitigation F54_ANALOG_CTRL41
+		ret = i2c_smbus_write_byte_data(ts_g->client,F54_ANALOG_COMMAND_BASE,0X04);//force F54_ANALOG_CMD00
+		checkCMD();
+		TPDTM_DMESG("forbid Forbid NoiseMitigation oK\n");
+		ret = i2c_smbus_write_byte_data(ts_g->client,F54_ANALOG_COMMAND_BASE,0x02);//Force Cal, F54_ANALOG_CMD00
+		checkCMD();
+		TPDTM_DMESG("Force Cal oK\n");
+		ret = i2c_smbus_write_word_data(ts_g->client,F54_ANALOG_DATA_BASE+1,0x00);//set fifo 00
+		ret = i2c_smbus_write_byte_data(ts_g->client,F54_ANALOG_COMMAND_BASE,0x01);//get report
+		checkCMD();
+
+		for(x = 0;x < TX_NUM; x++) {
+			for(y = 0; y < RX_NUM; y++)  {
+				ret = i2c_smbus_read_byte_data(ts_g->client,F54_ANALOG_DATA_BASE+3);
+				tmp_l = ret&0xff;
+				ret = i2c_smbus_read_byte_data(ts_g->client,F54_ANALOG_DATA_BASE+3);
+				tmp_h = ret&0xff;
+				baseline_data = (tmp_h<<8)|tmp_l;
+				if(rawdataflag == 0)
+					rawimage1[x*RX_NUM + y] = baseline_data;
+				else
+					rawimage2[x*RX_NUM + y] = baseline_data;
+			}
+		}
+
+		if(rawdataflag == 0){
+			rawdataflag = 1;
+			setfreqtab(8);
+			goto GETRAWIMAGEDATA2;
+		}
+		
+		TPD_ERR("Synaptic freqency shift test1:\n ");
+		for(x = 0;x < TX_NUM -1; x++) {
+			for(y = 0; y < RX_NUM; y++)  {
+				if(rawimage1[x*RX_NUM + y] >= rawimage2[x*RX_NUM + y])
+				{
+					printk("%d ",rawimage1[x*RX_NUM + y] - rawimage2[x*RX_NUM + y]);
+				}else
+				{
+					printk("%d ",rawimage2[x*RX_NUM + y] - rawimage1[x*RX_NUM + y]);
+				}
+			}
+			printk("\n");
+		}
+		TPD_ERR("Synaptic freqency shift test1:end\n ");
+		for(x = 0;x < TX_NUM -1; x++) {
+			for(y = 0; y < RX_NUM; y++)  {
+				if(rawimage1[x*RX_NUM + y] >= rawimage2[x*RX_NUM + y])
+				{
+					if(rawimage1[x*RX_NUM + y] - rawimage2[x*RX_NUM + y] >= 50)
+					{
+						TPD_ERR("Synaptic freqency shift test fail\n ");
+						num_read_chars += sprintf(&(buf[num_read_chars]), "freqency shift faile %d\n",rawimage1[x*RX_NUM + y] - rawimage2[x*RX_NUM + y]);
+						error_count++;
+						goto END;
+					}
+				}else
+				{
+					if(rawimage2[x*RX_NUM + y] - rawimage1[x*RX_NUM + y] >= 50)
+					{
+						TPD_ERR("Synaptic freqency shift test fail\n ");
+						num_read_chars += sprintf(&(buf[num_read_chars]), "freqency shift faile %d\n",rawimage2[x*RX_NUM + y] - rawimage1[x*RX_NUM + y]);
+						error_count++;
+						goto END;
+					}
+				}
+				
+				
+			}
+		}
+		kfree(rawimage1);
+		kfree(rawimage2);
+		rawimage1 = NULL;
+		rawimage2 = NULL;
+	}
 
 	//step 3 :check rx-to-rx
 	TPDTM_DMESG("s4291 step 3 :check rx-to-rx\n" );
@@ -2880,7 +3184,7 @@ static ssize_t tp_baseline_show_with_cbc(struct device_driver *ddri, char *buf)
 		TPDTM_DMESG("step 1: select report type 0x03 failed \n");
 		//return sprintf(buf, "i2c err!");
 	}
-	if( is_project(OPPO_14005) ){
+	if( is_project(OPPO_14005) || is_project(OPPO_15011) ){
 		ret = i2c_smbus_write_byte_data(ts_g->client, F54_ANALOG_CONTROL_BASE+20, 0x01);
 		ret = i2c_smbus_read_byte_data(ts_g->client,F54_ANALOG_CONTROL_BASE+23);
 		tmp_old = ret&0xff;
@@ -2949,7 +3253,7 @@ static ssize_t tp_baseline_show_with_cbc(struct device_driver *ddri, char *buf)
 
 static ssize_t synaptics_rmi4_baseline_show(struct device *dev,	char *buf, bool savefile)	
 {
-	if( is_project(OPPO_14005) || is_project(OPPO_14023)){	
+	if( is_project(OPPO_14005) || is_project(OPPO_15011) || is_project(OPPO_14023)){	
 		return synaptics_rmi4_baseline_show_s3508(dev,buf,savefile);	
 	}else if(is_project(OPPO_14045) || is_project (OPPO_14051)){
 		return synaptics_rmi4_baseline_show_s4291(dev,buf,savefile);
@@ -3004,7 +3308,7 @@ static int	synaptics_input_init(struct synaptics_ts_data *ts)
 
 #ifdef SUPPORT_GESTURE
 	set_bit(KEY_F4 , ts->input_dev->keybit);//doulbe-tap resume
-	if(!(is_project(OPPO_14043)|| is_project(OPPO_14037))){
+	if(!(is_project(OPPO_14043)|| is_project(OPPO_14037)|| is_project(OPPO_15057))){
 	
 		set_bit(KEY_MENU , ts->input_dev->keybit);
 		set_bit(KEY_HOMEPAGE , ts->input_dev->keybit);
@@ -3078,7 +3382,7 @@ static int synaptics_device_irq_init(struct synaptics_ts_data *ts)
 		return -1;
 	}
 #ifdef TPD_USE_EINT
-	TPDTM_DMESG("%s: going to set GPIO\n",__func__);
+	TPDTM_DMESG("%s: set IRQ GPIO\n",__func__);
 /****************
 shoud set the irq GPIO
 *******************/		
@@ -3088,7 +3392,7 @@ shoud set the irq GPIO
 		if (ret) {
 			TPD_ERR("unable to request gpio [%d]\n",ts->irq_gpio);
 		}
-		msleep(100);
+//		msleep(20);
 	}
 	
 	TPD_DEBUG("synaptic:ts->client->irq is %d\n",ts->client->irq);
@@ -3124,14 +3428,14 @@ static int synatpitcs_fw_update(struct device *dev, bool force)
 	}
 	ret = synapitcs_ts_update(ts->client, fw->data, fw->size, force); 
 	if(ret < 0){
-		if( is_project(OPPO_14005) ){
+		if( is_project(OPPO_14005) || is_project(OPPO_15011) ){
 			TPD_ERR("FW update not success try again\n");
 			gpio_direction_output(ts->enable2v8_gpio, 0);
 			msleep(20);
 			TPD_ERR("RESET THE TOUCHPANLE\n");
 			gpio_direction_output(ts->enable2v8_gpio, 1);
 			msleep(150);
-		}			
+		}
 		ret = synapitcs_ts_update(ts->client, fw->data, fw->size, force);
 		if(ret < 0){
 			TPD_ERR("FW update failed twice, quit updating process!\n");
@@ -3165,10 +3469,7 @@ static int synatpitcs_fw_update(struct device *dev, bool force)
 		synaptics_init_panel(ts);
 		synaptics_enable_interrupt(ts,1);	
 	}
-#ifdef CONFIG_SYNAPTIC_RED
-	if( call_times < 1 )
-		rmidev_init_device();
-#endif	
+
 	input_report_key(ts->input_dev, BTN_TOUCH, 0);
     input_mt_sync(ts->input_dev);	
 	input_sync(ts->input_dev);
@@ -3322,6 +3623,15 @@ static const struct file_operations coordinate_proc_fops = {
 	.owner = THIS_MODULE,
 };
 
+//chenggang.li@bsp add for 14045
+static const struct file_operations base_register_address= {
+	.write = write_base_register_address,
+	.read =  read_base_register_address,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+};
+
+
 //wangwenxue@BSP add for change baseline_test to "proc\touchpanel\baseline_test"  begin
 static const struct file_operations i2c_device_test_fops = {	
 	.read =  i2c_device_test_read_func,
@@ -3370,12 +3680,13 @@ static int init_synaptics_proc(void)
 	}
     	
 #ifdef SUPPORT_GESTURE
-	prEntry_double_tap = proc_create( "double_tap_enable", 0666, prEntry_tp, &tp_double_proc_fops);
-	if(prEntry_double_tap == NULL){
-		ret = -ENOMEM;
-		printk(KERN_INFO"init_synaptics_proc: Couldn't create proc entry\n");
-	}	
-	
+	if(!(is_project(OPPO_14045) || is_project(OPPO_14051))) {
+		prEntry_double_tap = proc_create( "double_tap_enable", 0666, prEntry_tp, &tp_double_proc_fops);
+		if(prEntry_double_tap == NULL){
+			ret = -ENOMEM;
+			printk(KERN_INFO"init_synaptics_proc: Couldn't create proc entry\n");
+		}	
+	}
 	prEntry_coodinate = proc_create("coordinate", 0444, prEntry_tp, &coordinate_proc_fops);
 	if(prEntry_coodinate == NULL){	   
 		ret = -ENOMEM;	   
@@ -3384,7 +3695,7 @@ static int init_synaptics_proc(void)
 #endif	 
 
 #ifdef SUPPORT_GLOVES_MODE
-	if( is_project(OPPO_14043) || is_project(OPPO_14037) ){
+	if( is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057) || is_project(OPPO_15011) ){
 			prEntry_dtap = proc_create( "glove_mode_enable", 0666, prEntry_tp,&glove_mode_enable_proc_fops);
 			if(prEntry_dtap == NULL) {
 				ret = -ENOMEM;
@@ -3421,6 +3732,13 @@ static int init_synaptics_proc(void)
 		ret = -ENOMEM;
 		printk(KERN_INFO"init_synaptics_proc: Couldn't create proc entry\n");
 	}	
+	
+	prEntry_i2c_device_test = proc_create( "synaptics_register_address", 0777, prEntry_tp, &base_register_address);
+	if(prEntry_i2c_device_test == NULL){
+		ret = -ENOMEM;
+		printk(KERN_INFO"init_synaptics_proc: Couldn't create proc entry\n");
+	}	
+	
 	return ret;
 }
 /******************************end****************************/
@@ -3567,7 +3885,7 @@ static int checkFlashState(void)
 	int ret ;
 	int count = 0;
 	int FLSH_STATUS = 0;
-	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project (OPPO_14045)|| is_project (OPPO_14051)){
+	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_15057)|| is_project (OPPO_14045)|| is_project (OPPO_14051)){
 		FLSH_STATUS = SynaF34_FlashControl;
 	}else{
 		FLSH_STATUS = SynaF34_FlashControl+1;
@@ -3622,7 +3940,7 @@ static int synaptics_fw_check(struct synaptics_ts_data *ts )
 		}
 	}
 	
-	if(is_project(OPPO_14043)|| is_project(OPPO_14037)){
+	if(is_project(OPPO_14043)|| is_project(OPPO_14037)|| is_project(OPPO_15057)){
 		ret = i2c_smbus_read_word_data(ts->client, F11_2D_CTRL06);
 		if(ret > 0)
 			ts->max_x = ret&0xffff;       
@@ -3721,7 +4039,7 @@ static int synapitcs_ts_update(struct i2c_client *client, const uint8_t *data, u
 	if( !( is_project(OPPO_14045) || is_project(OPPO_14051) ) ){
 		FIRMWARE_ID = (Config_Data[0]<<24)|(Config_Data[1]<<16)|(Config_Data[2]<<8)|Config_Data[3];
 	}else{
-		FIRMWARE_ID = 0x14045008;
+		FIRMWARE_ID = 0x00002700;
 	}
 	TPD_ERR("CURRENT_FIRMWARE_ID is %x-----------, FIRMWARE_ID is %x-----------\n", CURRENT_FIRMWARE_ID, FIRMWARE_ID);
 	TPD_ERR("synaptics force is %d\n", force);	
@@ -3731,7 +4049,7 @@ static int synapitcs_ts_update(struct i2c_client *client, const uint8_t *data, u
 		}	
 	}	
 	
-	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14045) || is_project (OPPO_14051)) {
+	if(is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057) || is_project(OPPO_14045) || is_project (OPPO_14051)) {
 		re_scan_PDT_s3203(client);
 	} else {
 		re_scan_PDT_s3508(client);
@@ -3766,7 +4084,7 @@ static int synapitcs_ts_update(struct i2c_client *client, const uint8_t *data, u
 	
 	ret=i2c_smbus_write_i2c_block_data(client, SynaF34Reflash_BlockData, 2, &(bootloder_id[0x0]));
 	TPD_DEBUG("ret is %d\n",ret);
-	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_14045) || is_project (OPPO_14051)) {
+	if(is_project(OPPO_14043) || is_project(OPPO_14037) || is_project(OPPO_15057) || is_project(OPPO_14045) || is_project (OPPO_14051)) {
 		re_scan_PDT_s3203(client);
 	} else {
 		re_scan_PDT_s3508(client);
@@ -3778,7 +4096,8 @@ static int synapitcs_ts_update(struct i2c_client *client, const uint8_t *data, u
 	ret = i2c_smbus_read_byte_data(client, SynaF34_FlashControl);
 	if(ret != 0x00)
 		msleep(2000);
-	
+		
+		
 	ret = i2c_smbus_read_byte_data(client,SynaF34_FlashControl+1);
 	TPDTM_DMESG("The status(erase) is %x\n",ret);		
 
@@ -3874,44 +4193,53 @@ static int synapitcs_ts_update(struct i2c_client *client, const uint8_t *data, u
 }
 /****************************S3310*****end!!!!!**********************************/
 
-
-
 static  void get_tp_id(int TP_ID1,int TP_ID2,int TP_ID3, struct synaptics_ts_data *ts)
 {
 	int ret,id1 = -1,id2 = -1,id3 = -1;
-	if(TP_ID1  >= 0)
-	{
+	if(TP_ID1  >= 0) {
 		ret = gpio_request(TP_ID1,"TP_ID1");
-		if(!ret){
-		
-		ret = pinctrl_select_state(ts->pinctrl,ts->id_pullup);// PULL_up
-		
-		msleep(100);
-	    id1=gpio_get_value(TP_ID1);
-		}
+		if(!is_project(OPPO_14045)){
+			if(!ret)		
+				ret = pinctrl_select_state(ts->pinctrl,ts->id_pullup);// PULL_up
+		}	
 	}
-	if(TP_ID2  >=  0)
-	{
+	if(TP_ID2  >=  0) {
 		ret = gpio_request(TP_ID2,"TP_ID2");
-		if(!ret){
-		ret = pinctrl_select_state(ts->pinctrl,ts->id_pullup);// PULL_up
-		msleep(100);	
+		if(!ret)
+			ret = pinctrl_select_state(ts->pinctrl,ts->id_pullup);// PULL_up
+	}	
+	if(TP_ID3  >= 0) {
+		ret = gpio_request(TP_ID3,"TP_ID3");
+		if(!ret)
+			ret = pinctrl_select_state(ts->pinctrl,ts->id_pullup);// PULL_up
+	}
+//	msleep(80);
+	if(TP_ID1  >= 0) {
+	    id1=gpio_get_value(TP_ID1);	
+	}
+	if(TP_ID2  >=  0) {
 		id2=gpio_get_value(TP_ID2);		
+	}	
+	if(TP_ID3  >= 0) {
+		id3=gpio_get_value(TP_ID3);
+	}
+
+	if(is_project(OPPO_14045))
+	{
+		if(id1 == 1){
+			TPDTM_DMESG("%s::TP_TRULY\n",__func__);			
+			tp_dev=TP_TRULY;
+		}else
+		{
+			TPDTM_DMESG("%s::TP_TPK\n",__func__);
+			tp_dev=TP_TPK;
+		}
+		if(TP_ID1  >= 0) {
+	    	gpio_free(TP_ID1);	
 		}
 	}
 	
-	if(TP_ID3  >= 0)
-	{
-		ret = gpio_request(TP_ID3,"TP_ID3");
-		if(!ret){
-		ret = pinctrl_select_state(ts->pinctrl,ts->id_pullup);// PULL_up
-		
-		msleep(100);		
-		id3=gpio_get_value(TP_ID3);
-		}	
-	}
-	if(is_project(OPPO_14043) )
-    {
+	if(is_project(OPPO_14043) ) {
         if((id1==0)&&(id2==1)&&(id3==0)) {
 			TPDTM_DMESG("%s::OFILM\n",__func__);
 			tp_dev=TP_OFILM;
@@ -3922,23 +4250,20 @@ static  void get_tp_id(int TP_ID1,int TP_ID2,int TP_ID3, struct synaptics_ts_dat
 			TPDTM_DMESG("%s::TP_UNKNOWN\n",__func__);
 			tp_dev=TP_OFILM;
 		}
-	}else if(is_project(OPPO_14037) )
-    {
+	} else if(is_project(OPPO_14037) || is_project(OPPO_15057) ) {
         if((id1==0)&&(id2==0)&&(id3==1)) {
 			TPDTM_DMESG("%s::OFILM\n",__func__);
 			tp_dev=TP_OFILM;
-		}else if((id1==0)&&(id2==0)&&(id3==0)) {
+		} else if((id1==0)&&(id2==0)&&(id3==0)) {
 			TPDTM_DMESG("%s::TRULY \n",__func__);
 			tp_dev=TP_TRULY;
-		}else{		
+		} else {		
 			TPDTM_DMESG("%s::TP_UNKNOWN\n",__func__);
 			tp_dev=TP_OFILM;
 		}
-	}
-	
-	TPD_DEBUG("%s::id1:%d id2:%d id3:%d\n",__func__,id1,id2,id3);		
+	}		
 }
-
+ 
 static int synaptics_parse_dts(struct device *dev, struct synaptics_ts_data *ts)
 {
 	int rc;
@@ -3964,6 +4289,9 @@ static int synaptics_parse_dts(struct device *dev, struct synaptics_ts_data *ts)
 	if( ts->id3_gpio < 0 ){
 		TPD_DEBUG("ts->id3_gpio not specified\n");	
 	}
+	//if(is_project(OPPO_14045)|| is_project(OPPO_14051))
+	//	tp_dev = TP_TPK;
+		
 	ts->reset_gpio = of_get_named_gpio(np, "synaptics,reset-gpio", 0);	
 	if( ts->reset_gpio < 0 ){
 		TPD_DEBUG("ts->reset-gpio  not specified\n");	
@@ -4059,7 +4387,7 @@ static int synaptics_parse_dts(struct device *dev, struct synaptics_ts_data *ts)
 		}
 	}
 	
-	if(is_project(OPPO_14043) || is_project(OPPO_14037))
+	if(is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057))
 	{
 		rc =ts_gpio_pinctrl_init(ts);
 	}
@@ -4067,11 +4395,17 @@ static int synaptics_parse_dts(struct device *dev, struct synaptics_ts_data *ts)
 	return rc;
 }
 
+extern void (*enable_aggressive_segmentation_fn)(bool);
+
+
 static int synaptics_ts_probe(
 	struct i2c_client *client, const struct i2c_device_id *id)
 {
-	struct synaptics_ts_data *ts;
-	int ret = 0;
+	struct synaptics_ts_data *ts = NULL;
+	#ifdef CONFIG_SYNAPTIC_RED	
+	struct remotepanel_data *premote_data = NULL;
+	#endif
+	int ret = -1;
 	int rc;
 	uint8_t buf[4];
 	uint32_t CURRENT_FIRMWARE_ID = 0;
@@ -4102,13 +4436,31 @@ static int synaptics_ts_probe(
 	ts->dev = &client->dev;
 	ts->loading_fw = false;
 	ts_g = ts;
+	/*********parse DTS***********/
+	synaptics_parse_dts(&client->dev, ts);
+	if(is_project(OPPO_14043)||is_project(OPPO_14037)|| is_project(OPPO_15057)||is_project(OPPO_14045))
+	{
+		get_tp_id(ts->id1_gpio,ts->id2_gpio,ts->id3_gpio,ts);
+	}
+	if(is_project(OPPO_14045)){
+		if(tp_dev == TP_TRULY)
+		{
+			printk("synaptics_ts_probe1 will return for tp_dev == TP_TRULY\n");
+			goto err_alloc_data_failed;	
+		}
+	}
+	/***power_init*****/
+	
+	mutex_init(&ts->mutex);
 	synaptics_wq = create_singlethread_workqueue("synaptics_wq");
     if( !synaptics_wq ){
-        return -ENOMEM;
+        ret = -ENOMEM;
+		goto err_alloc_data_failed;	
     }   	
 	speedup_resume_wq = create_singlethread_workqueue("speedup_resume_wq");
 	if( !speedup_resume_wq ){
-        return -ENOMEM;
+         ret = -ENOMEM;
+		goto err_alloc_data_failed;	
     }   
 	INIT_WORK(&ts->work, synaptics_ts_work_func);
 	INIT_WORK(&ts->speed_up_work,speedup_synaptics_resume);
@@ -4116,9 +4468,7 @@ static int synaptics_ts_probe(
 #ifdef SUPPORT_GESTURE
 	is_gesture_enable = 0;
 #endif
-/*********parse DTS***********/
-	synaptics_parse_dts(&client->dev, ts);
-/***power_init*****/
+
 	ret = tpd_power(ts, 1);	
 	if( ret < 0 )
 		TPD_ERR("regulator_enable is called\n");
@@ -4129,7 +4479,7 @@ static int synaptics_ts_probe(
 	 
 	if( (boot_mode == MSM_BOOT_MODE__FACTORY || boot_mode == MSM_BOOT_MODE__RF || boot_mode == MSM_BOOT_MODE__WLAN) ){
 		TPD_DEBUG("regulator_disable is called\n");
-		if( is_project(OPPO_14005) ){
+		if( is_project(OPPO_14005) || is_project(OPPO_15011) ){
 			if( ts->reset_gpio > 0 )
 			{				
 				TPD_DEBUG("synaptics:enable the reset_gpio\n");
@@ -4146,7 +4496,7 @@ static int synaptics_ts_probe(
 		if( ts->enable2v8_gpio > 0 )
 		{	
 			TPD_DEBUG("synaptics:disable the enable2v8_gpio\n");
-			if(is_project(OPPO_14043) || is_project(OPPO_14037)){
+			if(is_project(OPPO_14043) || is_project(OPPO_14037)|| is_project(OPPO_15057)){
 				gpio_direction_output(ts->enable2v8_gpio, 1);	
 			}else{
 				gpio_direction_output(ts->enable2v8_gpio, 0);	
@@ -4154,7 +4504,7 @@ static int synaptics_ts_probe(
 		}
 		
 		msleep(5);
-		if( is_project(OPPO_14005) ||  is_project(OPPO_14045) || is_project (OPPO_14051))
+		if( is_project(OPPO_14005) || is_project(OPPO_15011) ||  is_project(OPPO_14045) || is_project (OPPO_14051))
 		{
 			return 0;
 		}else{
@@ -4167,9 +4517,6 @@ static int synaptics_ts_probe(
 		}
 	}
 	/*****power_end*********/
-	if( is_project(OPPO_14043) ||  is_project(OPPO_14037) )	{
-		get_tp_id(ts->id1_gpio,ts->id2_gpio,ts->id3_gpio,ts);
-	}
 	if( !i2c_check_functionality(client->adapter, I2C_FUNC_I2C) ){
 		TPD_ERR("%s: need I2C_FUNC_I2C\n", __func__);
 		ret = -ENODEV;
@@ -4236,13 +4583,27 @@ static int synaptics_ts_probe(
 				strcpy(ts->fw_name,"tp/14037/14037_FW_S3203_Ofilm.img");
 				strcpy(ts->test_limit_name,"tp/14037/14037_Limit_Oflim.img");		
 			}
+	}else if( is_project(OPPO_15057) ){
+			if(tp_dev == TP_TRULY) {
+				tp_info.manufacture = "TRULY";				
+				strcpy(ts->fw_name,"tp/15057/15057_FW_S3203_Truly.img");
+				strcpy(ts->test_limit_name,"tp/15057/15057_Limit_Truly.img");				
+			}else if(tp_dev == TP_OFILM) {			
+				tp_info.manufacture = "OFILM";				
+				strcpy(ts->fw_name,"tp/15057/15057_FW_S3203_Ofilm.img");
+				strcpy(ts->test_limit_name,"tp/15057/15057_Limit_Oflim.img");		
+			}
 	}else if( is_project(OPPO_14051) ){
 			tp_info.manufacture = "TP_TPK";			
 			strcpy(ts->fw_name,"tp/14051/14051_FW_S4291_Tpk.img");
 			strcpy(ts->test_limit_name,"tp/14051/14051_Limit_Tpk.img");
+	}else if(is_project(OPPO_15011) ){		
+			tp_info.manufacture = "SAMSUNG";			
+			strcpy(ts->fw_name,"tp/15011/15011_FW_S3508_Tpk.img");	
+			strcpy(ts->test_limit_name,"tp/15011/15011_Limit_Tpk.img");
+			
 	}else{
-		printk("TP_DEV = Unkowm\n");
-	
+		printk("TP_DEV = Unkowm\n");	
 	}
 	TPD_DEBUG("synatpitcs_fw: fw_name = %s \n",ts->fw_name);
 	register_device_proc("tp", tp_info.version, tp_info.manufacture);	
@@ -4311,19 +4672,32 @@ static int synaptics_ts_probe(
 		TPDTM_DMESG("driver_create_file failt\n");
 		goto exit_init_failed;
 	}		
+	enable_aggressive_segmentation_fn = enable_aggressive_segmentation;
 
 	TPDTM_DMESG("synaptics_ts_probe: normal end\n");
 	tp_probe_ok = 1;
+	#ifdef CONFIG_SYNAPTIC_RED	
+	premote_data = remote_alloc_panel_data();
+	if(premote_data)
+	{
+		premote_data->client 		= client;
+		premote_data->input_dev		= ts->input_dev;
+		premote_data->kpd			= ts->kpd;
+		//premote_data->pmutex		= &ts->mutex;
+		premote_data->irq_gpio 		= ts->irq_gpio;
+		premote_data->irq			= client->irq;
+		premote_data->enable_remote = &(ts->enable_remote);
+		register_remote_device(premote_data);
+
+	}
+	#endif
 	return 0;
 
 exit_init_failed:
+err_check_functionality_failed:
+	tpd_power(ts, 0);
 err_alloc_data_failed:
 	kfree(ts);
-err_check_functionality_failed:
-	
-#ifdef VENDOR_EDIT //hsy@oppo.com, add 2011/12/14 for tpd power off	
-	tpd_power(ts, 0);
-#endif /*VENDOR_EDIT*/
 	printk("synaptics_ts_probe: not normal end\n");
 	return ret;
 }
@@ -4332,10 +4706,6 @@ static int synaptics_ts_remove(struct i2c_client *client)
 {
 	int attr_count;
 	struct synaptics_ts_data *ts = i2c_get_clientdata(client);
-	
-#ifdef CONFIG_SYNAPTIC_RED
-	rmidev_remove_device();
-#endif
 
 #if defined(CONFIG_FB)
 	if( fb_unregister_client(&ts->fb_notif) )
@@ -4369,7 +4739,7 @@ static int synaptics_ts_suspend(struct device *dev)
 		TPD_ERR("input_dev  registration is not complete\n");
 		return -1;
 	}
-	
+	gesture_enable = 1;
 	atomic_set(&is_touch, 0);
 /***********report Up key when suspend********/	
 	input_report_key(ts->input_dev, KEY_MENU, 0);
@@ -4490,7 +4860,7 @@ static void speedup_synaptics_resume(struct work_struct *work)
 		TPD_ERR("input_dev  registration is not complete\n");
 		goto ERR_RESUME;
 	}
-	
+	gesture_enable = 0;
 	input_report_key(ts_g->input_dev, BTN_TOUCH, 0);
 #ifndef TYPE_B_PROTOCOL
     input_mt_sync(ts_g->input_dev);	
@@ -4529,10 +4899,10 @@ if( ts_g->reset_gpio > 0 )
 	
 	
 #ifdef SUPPORT_GESTURE
-	if( 1 == atomic_read(&double_enable) ){
-		ret = synaptics_enable_interrupt_for_gesture(ts, 0); 
-		if( ret<0 )
+	if(!is_project(OPPO_14045)){
 			ret = synaptics_enable_interrupt_for_gesture(ts, 0); 
+			if( ret<0 )
+				ret = synaptics_enable_interrupt_for_gesture(ts, 0); 
 	}
 #endif	
 	
@@ -4594,9 +4964,9 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
 		blank = evdata->data;
 		if( *blank == FB_BLANK_UNBLANK ){
 			if( count_resume == 0 ){
-				if(( is_project(OPPO_14045) || is_project(OPPO_14051) ) && te_reset_14045 == 1 ){
-					te_reset_14045 = 0;
-				}
+				//if(( is_project(OPPO_14045) || is_project(OPPO_14051) ) && te_reset_14045 == 1 ){
+				//	te_reset_14045 = 0;
+				//}
 				TPD_DEBUG("%s going TP resume\n", __func__);
 				
 				synaptics_ts_resume(&ts->client->dev);
@@ -4626,7 +4996,7 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
 #endif
 
 static int __init tpd_driver_init(void) {
-	printk("Synaptic:%s is called\n", __func__);
+	printk("Synaptics:%s is called\n", __func__);
 	 if( i2c_add_driver(&tpd_i2c_driver)!= 0 ){
         TPDTM_DMESG("unable to add i2c driver.\n");
         return -1;
@@ -4637,75 +5007,13 @@ static int __init tpd_driver_init(void) {
 /* should never be called */
 static void __exit tpd_driver_exit(void){
  	i2c_del_driver(&tpd_i2c_driver);
-	if( synaptics_wq )
+	if(synaptics_wq ){
 		destroy_workqueue(synaptics_wq);
+		synaptics_wq = NULL;
+	}	
 	return;
 }
 
-#ifdef CONFIG_SYNAPTIC_RED
-int remote_rmi4_i2c_enable(bool enable)
-{
-	int ret = 0 ;
-	unsigned char status_int ;
-	if( !ts_g )
-		return 0 ;
-	if( enable ){
-		ret= i2c_smbus_write_byte_data(ts_g->client, 0xff, 0x0);
-		status_int = i2c_smbus_read_byte_data(ts_g->client, F01_RMI_DATA01);
-		ret = request_irq(ts_g->client->irq, synaptics_ts_irq_handler, ts_g->irq_flags, ts_g->client->name, ts_g);
-		if( ret < 0 ){
-			printk("[syna] request irq error\n");
-		}
-	}else{
-		free_irq(ts_g->client->irq, ts_g);
-	}
-	return 0 ;
-}
-
-struct input_dev *remote_rmi4_get_input(void)
-{
-	if( !ts_g )
-		return 0 ;
-	return ts_g->input_dev ;
-}
-
-struct i2c_client *remote_rmi4_get_i2c_client(void)
-{
-	if( !ts_g )
-		return 0 ;
-	return ts_g->client;
-}
-
-int remote_rmi4_get_irq_gpio(void)
-{
-	return 17;
-}
-
-int remote_rmit_set_page(unsigned int address){
-	int ret = 0 ;
-	u8 page = 0 ;
-	if( !ts_g )
-		return 0 ;
-	page = ( (address >> 8) & 0xFF );
-	ret = i2c_smbus_write_byte_data(ts_g->client, 0xff, page);
-	if( ret < 0 ){
-		TPD_DEBUG("%s: failed for page select\n", __func__);
-		return -1;
-	}
-	return ret ;
-}
-
-int remote_rmit_put_page(unsigned int address)
-{
-    int ret;
-   	ret = i2c_smbus_write_byte_data(ts_g->client, 0xff, 0x0); 
-	if( ret < 0 ){
-		TPD_DEBUG("%s: failed for page select\n", __func__);
-		return -1;
-	}
-	return ret;
-}
-#endif
 module_init(tpd_driver_init);
 module_exit(tpd_driver_exit);
 

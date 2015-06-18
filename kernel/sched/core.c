@@ -1103,16 +1103,28 @@ static inline void clear_hmp_request(int cpu) { }
 
 #if defined(CONFIG_SCHED_FREQ_INPUT) || defined(CONFIG_SCHED_HMP)
 
-__read_mostly unsigned int sysctl_sched_ravg_hist_size = 3;
-
 /*
- * copy of sysctl_sched_ravg_hist_size. Required for atomically
- * changing the ravg history size (see sched_ravg_hist_size_update_handler()
- * for details).
+ * sched_window_stats_policy, sched_account_wait_time, sched_ravg_hist_size
+ * and sched_freq_legacy_mode have a 'sysctl' copy associated with them. This
+ * is required for atomic update of those variables when being modifed via
+ * sysctl interface.
  *
- * Initialize both to same value!!
+ * IMPORTANT: Initialize both copies to same value!!
  */
 static __read_mostly unsigned int sched_ravg_hist_size = 3;
+__read_mostly unsigned int sysctl_sched_ravg_hist_size = 3;
+
+
+static __read_mostly unsigned int sched_window_stats_policy =
+	 WINDOW_STATS_USE_AVG;
+__read_mostly unsigned int sysctl_sched_window_stats_policy =
+	WINDOW_STATS_USE_AVG;
+
+static __read_mostly unsigned int sched_account_wait_time = 1;
+__read_mostly unsigned int sysctl_sched_account_wait_time = 1;
+
+static __read_mostly unsigned int sched_freq_legacy_mode;
+__read_mostly unsigned int sysctl_sched_freq_legacy_mode;
 
 /* Window size (in ns) */
 __read_mostly unsigned int sched_ravg_window = 10000000;
@@ -1123,37 +1135,17 @@ __read_mostly unsigned int sched_ravg_window = 10000000;
 /* Max window size (in ns) = 1s */
 #define MAX_SCHED_RAVG_WINDOW 1000000000
 
-#define WINDOW_STATS_USE_RECENT        0
-#define WINDOW_STATS_USE_MAX   1
-#define WINDOW_STATS_USE_AVG   2
-
-__read_mostly unsigned int sysctl_sched_window_stats_policy =
-	WINDOW_STATS_USE_AVG;
-
-/*
- * copy of sysctl_sched_window_stats_policy. Required for atomically
- * changing policy (see sched_window_stats_policy_update_handler() for details).
- *
- * Initialize both to same value!!
- */
-static __read_mostly unsigned int sched_window_stats_policy =
-	 WINDOW_STATS_USE_AVG;
-
 /* 1 -> use PELT based load stats, 0 -> use window-based load stats */
 unsigned int __read_mostly sched_use_pelt;
+
+/* Temporarily disable window-stats activity on all cpus */
+unsigned int __read_mostly sched_disable_window_stats;
 
 unsigned int max_possible_efficiency = 1024;
 unsigned int min_possible_efficiency = 1024;
 
-__read_mostly int sysctl_sched_freq_inc_notify_slack_pct;
-__read_mostly int sysctl_sched_freq_dec_notify_slack_pct = 25;
-
-static __read_mostly unsigned int sched_account_wait_time = 1;
-/*
- * Copy of sched_account_wait_time, used to change it atomically.
- * Initialize both variables to same value!!
- */
-__read_mostly unsigned int sysctl_sched_account_wait_time = 1;
+__read_mostly int sysctl_sched_freq_inc_notify_slack_pct = -INT_MAX;
+__read_mostly int sysctl_sched_freq_dec_notify_slack_pct = INT_MAX;
 
 static __read_mostly unsigned int sched_io_is_busy;
 
@@ -1181,6 +1173,7 @@ static u64 sched_clock_at_init_jiffy;
 
 #define CURR_WINDOW_CONTRIB	1
 #define PREV_WINDOW_CONTRIB	2
+#define DONT_ACCOUNT		4
 
 /* Returns how undercommitted a CPU is given its current frequency and
  * task load (as measured in the previous window).  Returns this value
@@ -1225,8 +1218,7 @@ update_history(struct rq *rq, struct task_struct *p, u32 runtime, int samples,
 	u64 sum = 0;
 
 	if (new_window) {
-		p->ravg.flags = 0;
-		p->ravg.prev_window = runtime;
+		p->ravg.flags &= ~(CURR_WINDOW_CONTRIB | PREV_WINDOW_CONTRIB);
 		if (runtime)
 			p->ravg.flags |= PREV_WINDOW_CONTRIB;
 	}
@@ -1289,14 +1281,15 @@ compute_demand:
 	if (new_window)
 		p->ravg.demand = demand;
 
-	if (update_sum && (p->ravg.flags & CURR_WINDOW_CONTRIB)) {
+	if (!sched_freq_legacy_mode && update_sum &&
+			 (p->ravg.flags & CURR_WINDOW_CONTRIB)) {
 		rq->curr_runnable_sum -= p->ravg.partial_demand;
 		BUG_ON((s64)rq->curr_runnable_sum < 0);
 	}
 
 	p->ravg.partial_demand = demand;
 
-	if (update_sum && !new_window) {
+	if (!sched_freq_legacy_mode && update_sum && !new_window) {
 		rq->curr_runnable_sum += p->ravg.partial_demand;
 		p->ravg.flags |= CURR_WINDOW_CONTRIB;
 	}
@@ -1376,29 +1369,8 @@ static inline u64 scale_exec_time(u64 delta, struct rq *rq)
 	return delta;
 }
 
-/*
- * We depend on task's partial_demand to be always represented in
- * rq->curr_runnable_sum and its demand to be represented in
- * rq->prev_runnable_sum. When task wakes up (TASK_WAKE) or is picked to run
- * (PICK_NEXT_TASK) or migrated (TASK_MIGRATE) with sched_account_wait_time ==
- * 0, ensure this dependency is met.
- */
-static inline int add_task_demand(int event, struct task_struct *p,
-		 struct rq *rq, int *long_sleep)
-{
-	if ((p->ravg.flags & CURR_WINDOW_CONTRIB) &&
-		(p->ravg.flags & PREV_WINDOW_CONTRIB))
-			return 0;
-
-	if (long_sleep && (rq->window_start > p->ravg.mark_start &&
-		rq->window_start - p->ravg.mark_start > sched_ravg_window))
-			*long_sleep = 1;
-
-	return 1;
-}
-
 static void update_task_ravg(struct task_struct *p, struct rq *rq,
-	     int event, u64 wallclock, int *long_sleep, u64 irqtime)
+	     int event, u64 wallclock, u64 irqtime)
 {
 	u32 window_size = sched_ravg_window;
 	int update_sum, new_window;
@@ -1406,10 +1378,13 @@ static void update_task_ravg(struct task_struct *p, struct rq *rq,
 	u64 window_start;
 	s64 delta = 0;
 
-	if (sched_use_pelt || !rq->window_start)
+	if (sched_use_pelt || !rq->window_start || sched_disable_window_stats)
 		return;
 
 	lockdep_assert_held(&rq->lock);
+
+	if (!p->ravg.mark_start)
+		goto done;
 
 	update_sum = (event == PUT_PREV_TASK || event == TASK_UPDATE ||
 			(sched_account_wait_time &&
@@ -1461,12 +1436,22 @@ static void update_task_ravg(struct task_struct *p, struct rq *rq,
 			new_window = 1;
 		}
 
-		if (update_sum) {
+		/*
+		 * Tasks marked as DONT_ACCOUNT will not be accounted in
+		 * rq->prev/curr_runnable_sum. We however want to perform
+		 * maintenance duties on other counters such as window_start
+		 * and roll over of curr_runnable_sum into prev_runnable_sum
+		 * when update_task_ravg() is called on such tasks.
+		 */
+		if (update_sum && !(p->ravg.flags & DONT_ACCOUNT)) {
 			delta = now - mark_start;
 			delta = scale_exec_time(delta, rq);
 			BUG_ON(delta < 0);
 
 			p->ravg.sum += delta;
+			if (sched_freq_legacy_mode && (event == PUT_PREV_TASK))
+				rq->curr_runnable_sum += delta;
+
 			if (unlikely(p->ravg.sum > window_size))
 				p->ravg.sum = window_size;
 		}
@@ -1478,7 +1463,7 @@ static void update_task_ravg(struct task_struct *p, struct rq *rq,
 
 		if (nr_full_windows) {
 			window_start += nr_full_windows * window_size;
-			if (update_sum)
+			if (update_sum && !(p->ravg.flags & DONT_ACCOUNT))
 				sum = window_size;
 			sum = scale_exec_time(sum, rq);
 			update_history(rq, p, sum, nr_full_windows,
@@ -1487,6 +1472,18 @@ static void update_task_ravg(struct task_struct *p, struct rq *rq,
 
 		if (update_sum) {
 			if (event == PUT_PREV_TASK || event == TASK_UPDATE) {
+				if (sched_freq_legacy_mode) {
+					if (nr_full_windows) {
+						/* sum == scaled window_size */
+						rq->curr_runnable_sum = sum;
+					}
+					rq->prev_runnable_sum =
+						rq->curr_runnable_sum;
+					rq->curr_runnable_sum = 0;
+					mark_start = window_start;
+					continue;
+				}
+
 				if (!nr_full_windows) {
 					rq->curr_runnable_sum -= partial_demand;
 					rq->curr_runnable_sum += p->ravg.demand;
@@ -1497,7 +1494,7 @@ static void update_task_ravg(struct task_struct *p, struct rq *rq,
 				}
 				rq->curr_runnable_sum = p->ravg.partial_demand;
 				p->ravg.flags |= CURR_WINDOW_CONTRIB;
-			} else  {
+			} else if (!sched_freq_legacy_mode) {
 				if (!nr_full_windows) {
 					rq->prev_runnable_sum -= partial_demand;
 					BUG_ON((s64)rq->prev_runnable_sum < 0);
@@ -1513,16 +1510,22 @@ static void update_task_ravg(struct task_struct *p, struct rq *rq,
 		mark_start = window_start;
 	} while (new_window);
 
-	if (add_task_demand(event, p, rq, long_sleep)) {
-		if (!(p->ravg.flags & CURR_WINDOW_CONTRIB)) {
-			rq->curr_runnable_sum += p->ravg.partial_demand;
-			p->ravg.flags |= CURR_WINDOW_CONTRIB;
-		}
+	/*
+	 * We depend on task's partial_demand to be always represented in
+	 * rq->curr_runnable_sum and its demand to be represented in
+	 * rq->prev_runnable_sum. When task wakes up (TASK_WAKE) or is picked to
+	 * run (PICK_NEXT_TASK) or migrated (TASK_MIGRATE) with
+	 * sched_account_wait_time == 0, ensure this dependency is met.
+	 */
 
-		if (!(p->ravg.flags & PREV_WINDOW_CONTRIB)) {
-			rq->prev_runnable_sum += p->ravg.demand;
-			p->ravg.flags |= PREV_WINDOW_CONTRIB;
-		}
+	if (!sched_freq_legacy_mode && !(p->ravg.flags & CURR_WINDOW_CONTRIB)) {
+		rq->curr_runnable_sum += p->ravg.partial_demand;
+		p->ravg.flags |= CURR_WINDOW_CONTRIB;
+	}
+
+	if (!sched_freq_legacy_mode && !(p->ravg.flags & PREV_WINDOW_CONTRIB)) {
+		rq->prev_runnable_sum += p->ravg.demand;
+		p->ravg.flags |= PREV_WINDOW_CONTRIB;
 	}
 
 done:
@@ -1541,7 +1544,7 @@ void sched_account_irqtime(int cpu, struct task_struct *curr,
 		return;
 
 	raw_spin_lock_irqsave(&rq->lock, flags);
-	update_task_ravg(curr, rq, IRQ_UPDATE, wallclock, NULL, delta);
+	update_task_ravg(curr, rq, IRQ_UPDATE, wallclock, delta);
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 }
 
@@ -1574,40 +1577,54 @@ static void init_cpu_efficiency(void)
 	min_possible_efficiency = min;
 }
 
+static void reset_task_stats(struct task_struct *p)
+{
+	int i;
+
+	p->ravg.sum = 0;
+	p->ravg.demand = 0;
+	p->ravg.partial_demand = 0;
+	p->ravg.flags &= ~(CURR_WINDOW_CONTRIB | PREV_WINDOW_CONTRIB);
+	for (i = 0; i < RAVG_HIST_SIZE_MAX; ++i)
+		p->ravg.sum_history[i] = 0;
+	p->ravg.mark_start = 0;
+}
+
 static inline void mark_task_starting(struct task_struct *p)
 {
 	struct rq *rq = task_rq(p);
 	u64 wallclock = sched_clock();
 
-	if (!rq->window_start) {
-		p->ravg.partial_demand = 0;
-		p->ravg.demand = 0;
-		p->ravg.prev_window = 0;
-		p->ravg.sum = 0;
+	if (!rq->window_start || sched_disable_window_stats) {
+		reset_task_stats(p);
 		return;
 	}
 
-	update_task_ravg(rq->curr, rq, TASK_UPDATE, wallclock, NULL, 0);
+	update_task_ravg(rq->curr, rq, TASK_UPDATE, wallclock, 0);
 	p->ravg.mark_start = wallclock;
 	rq->prev_runnable_sum += p->ravg.demand;
 	rq->curr_runnable_sum += p->ravg.partial_demand;
-	p->ravg.prev_window = p->ravg.demand;
 	p->ravg.flags |= CURR_WINDOW_CONTRIB;
 	p->ravg.flags |= PREV_WINDOW_CONTRIB;
 }
+
+static int update_alignment;
 
 static inline void set_window_start(struct rq *rq)
 {
 	int cpu = cpu_of(rq);
 	struct rq *sync_rq = cpu_rq(sync_cpu);
 
+	if (cpu == sync_cpu && !update_alignment) {
+		sched_init_jiffy = get_jiffies_64();
+		sched_clock_at_init_jiffy = sched_clock();
+	}
+
 	if (rq->window_start || !sched_enable_hmp)
 		return;
 
 	if (cpu == sync_cpu) {
-		rq->window_start = sched_clock();
-		sched_init_jiffy = get_jiffies_64();
-		sched_clock_at_init_jiffy = rq->window_start;
+		rq->window_start = sched_clock_at_init_jiffy;
 	} else {
 		raw_spin_unlock(&rq->lock);
 		double_rq_lock(rq, sync_rq);
@@ -1636,23 +1653,105 @@ unsigned long sched_get_busy(int cpu)
 	 * that the window stats are current by doing an update.
 	 */
 	raw_spin_lock_irqsave(&rq->lock, flags);
-	update_task_ravg(rq->curr, rq, TASK_UPDATE, sched_clock(), NULL, 0);
+	update_task_ravg(rq->curr, rq, TASK_UPDATE, sched_clock(), 0);
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 
 	return div64_u64(scale_load_to_cpu(rq->prev_runnable_sum, cpu),
 			  NSEC_PER_USEC);
 }
 
-/* Called with IRQs disabled */
-void reset_all_window_stats(u64 window_start, unsigned int window_size,
-				 int policy, int acct_wait_time,
-				 unsigned int ravg_hist_size)
+static void reset_all_task_stats(void)
 {
-	int cpu;
-	u64 wallclock;
 	struct task_struct *g, *p;
 
-	for_each_online_cpu(cpu) {
+	read_lock(&tasklist_lock);
+	do_each_thread(g, p) {
+		reset_task_stats(p);
+	}  while_each_thread(g, p);
+	read_unlock(&tasklist_lock);
+}
+
+/*
+ * sched_exit() - Set DONT_ACCOUNT bit in task's ravg.flags
+ *
+ * This will remove an exiting task's stats from cpu busy counters
+ * (rq->curr/prev_runnable_sum) and also reset its stats. DONT_ACCOUNT bit is
+ * also set in exiting tasks ravg.flags so that its future usage of cpu is
+ * discounted from cpu busy time.
+ *
+ * We need this so that reset_all_windows_stats() can function correctly.
+ * reset_all_window_stats() depends on do_each_thread/for_each_thread task
+ * iterators to reset *all* task's statistics. Exiting tasks however become
+ * invisible to those iterators. sched_exit() is called on a exiting task prior
+ * to being removed from task_list, which will let reset_all_window_stats()
+ * function correctly.
+ */
+void sched_exit(struct task_struct *p)
+{
+	unsigned long flags;
+	int cpu = get_cpu();
+	struct rq *rq = cpu_rq(cpu);
+	u64 wallclock;
+
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	/* rq->curr == p */
+	wallclock = sched_clock();
+	update_task_ravg(rq->curr, rq, TASK_UPDATE, wallclock, 0);
+	dequeue_task(rq, p, 0);
+	if (!sched_disable_window_stats &&
+			(p->ravg.flags & CURR_WINDOW_CONTRIB))
+		rq->curr_runnable_sum -= p->ravg.partial_demand;
+	if (!sched_disable_window_stats &&
+			(p->ravg.flags & PREV_WINDOW_CONTRIB))
+		rq->prev_runnable_sum -= p->ravg.demand;
+	BUG_ON((s64)rq->curr_runnable_sum < 0);
+	BUG_ON((s64)rq->prev_runnable_sum < 0);
+	reset_task_stats(p);
+	p->ravg.mark_start = wallclock;
+	p->ravg.flags |= DONT_ACCOUNT;
+	enqueue_task(rq, p, 0);
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
+
+	put_cpu();
+}
+
+static void disable_window_stats(void)
+{
+	unsigned long flags;
+	int i;
+
+	local_irq_save(flags);
+	for_each_possible_cpu(i)
+		raw_spin_lock(&cpu_rq(i)->lock);
+
+	sched_disable_window_stats = 1;
+
+	for_each_possible_cpu(i)
+		raw_spin_unlock(&cpu_rq(i)->lock);
+
+	local_irq_restore(flags);
+}
+
+/* Called with all cpu's rq->lock held */
+static void enable_window_stats(void)
+{
+	sched_disable_window_stats = 0;
+
+}
+
+/* Called with IRQs enabled */
+void reset_all_window_stats(u64 window_start, unsigned int window_size)
+{
+	int cpu;
+	unsigned long flags;
+
+	disable_window_stats();
+
+	reset_all_task_stats();
+
+	local_irq_save(flags);
+
+	for_each_possible_cpu(cpu) {
 		struct rq *rq = cpu_rq(cpu);
 		raw_spin_lock(&rq->lock);
 	}
@@ -1662,24 +1761,9 @@ void reset_all_window_stats(u64 window_start, unsigned int window_size,
 		set_hmp_defaults();
 	}
 
-	wallclock = sched_clock();
+	enable_window_stats();
 
-	read_lock(&tasklist_lock);
-	do_each_thread(g, p) {
-		int i;
-
-		p->ravg.sum = 0;
-		p->ravg.demand = 0;
-		p->ravg.partial_demand = 0;
-		p->ravg.prev_window = 0;
-		p->ravg.flags = 0;
-		for (i = 0; i < RAVG_HIST_SIZE_MAX; ++i)
-			p->ravg.sum_history[i] = 0;
-		p->ravg.mark_start = wallclock;
-	}  while_each_thread(g, p);
-	read_unlock(&tasklist_lock);
-
-	for_each_online_cpu(cpu) {
+	for_each_possible_cpu(cpu) {
 		struct rq *rq = cpu_rq(cpu);
 
 		if (window_start)
@@ -1689,19 +1773,17 @@ void reset_all_window_stats(u64 window_start, unsigned int window_size,
 		fixup_nr_big_small_task(cpu);
 	}
 
-	if (policy >= 0)
-		sched_window_stats_policy = policy;
+	sched_window_stats_policy = sysctl_sched_window_stats_policy;
+	sched_account_wait_time = sysctl_sched_account_wait_time;
+	sched_ravg_hist_size = sysctl_sched_ravg_hist_size;
+	sched_freq_legacy_mode = sysctl_sched_freq_legacy_mode;
 
-	if (acct_wait_time >= 0)
-		sched_account_wait_time = acct_wait_time;
-
-	if (ravg_hist_size > 0)
-		sched_ravg_hist_size = ravg_hist_size;
-
-	for_each_online_cpu(cpu) {
+	for_each_possible_cpu(cpu) {
 		struct rq *rq = cpu_rq(cpu);
 		raw_spin_unlock(&rq->lock);
 	}
+
+	local_irq_restore(flags);
 }
 
 void sched_set_io_is_busy(int val)
@@ -1712,32 +1794,27 @@ void sched_set_io_is_busy(int val)
 int sched_set_window(u64 window_start, unsigned int window_size)
 {
 	u64 ws, now;
-	int delta;
-	unsigned long flags;
 
 	if (sched_use_pelt ||
 		 (window_size * TICK_NSEC <  MIN_SCHED_RAVG_WINDOW))
 			return -EINVAL;
 
-	local_irq_save(flags);
-
-	now = get_jiffies_64();
-	if (time_after64(window_start, now)) {
-		delta = window_start - now; /* how many jiffies ahead */
-		delta /= window_size; /* # of windows to roll back */
-		delta += 1;
-		window_start -= (delta * window_size);
-	}
+	mutex_lock(&policy_mutex);
+	update_alignment = 1;
 
 	ws = (window_start - sched_init_jiffy); /* jiffy difference */
 	ws *= TICK_NSEC;
 	ws += sched_clock_at_init_jiffy;
 
+	now = sched_clock();
+	while (ws > now)
+		ws -= (window_size * TICK_NSEC);
+
 	BUG_ON(sched_clock() < ws);
 
-	reset_all_window_stats(ws, window_size, -1, -1, 0);
+	reset_all_window_stats(ws, window_size);
 
-	local_irq_restore(flags);
+	mutex_unlock(&policy_mutex);
 
 	return 0;
 }
@@ -1930,7 +2007,7 @@ static int cpufreq_notifier_trans(struct notifier_block *nb,
 	BUG_ON(!new_freq);
 
 	raw_spin_lock_irqsave(&rq->lock, flags);
-	update_task_ravg(rq->curr, rq, TASK_UPDATE, sched_clock(), NULL, 0);
+	update_task_ravg(rq->curr, rq, TASK_UPDATE, sched_clock(), 0);
 	cpu_rq(cpu)->cur_freq = new_freq;
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 
@@ -1975,17 +2052,22 @@ static void fixup_busy_time(struct task_struct *p, int new_cpu)
 	struct rq *src_rq = task_rq(p);
 	struct rq *dest_rq = cpu_rq(new_cpu);
 	u64 wallclock;
+	int freq_notify = 0;
 
 	if (p->state == TASK_WAKING)
 		double_rq_lock(src_rq, dest_rq);
 
+	if (sched_disable_window_stats)
+		goto done;
+
+	freq_notify = 1;
 	wallclock = sched_clock();
 
 	update_task_ravg(task_rq(p)->curr, task_rq(p),
 			 TASK_UPDATE,
-			 wallclock, NULL, 0);
+			 wallclock, 0);
 	update_task_ravg(dest_rq->curr, dest_rq,
-			 TASK_UPDATE, wallclock, NULL, 0);
+			 TASK_UPDATE, wallclock, 0);
 
 	/*
 	 * In case of migration of task on runqueue, on_rq =1,
@@ -2002,7 +2084,7 @@ static void fixup_busy_time(struct task_struct *p, int new_cpu)
 	}
 
 	update_task_ravg(p, task_rq(p), TASK_MIGRATE,
-			 wallclock, NULL, 0);
+			 wallclock, 0);
 
 	/*
 	 * Remove task's load from rq as its now migrating to
@@ -2030,10 +2112,11 @@ static void fixup_busy_time(struct task_struct *p, int new_cpu)
 	trace_sched_migration_update_sum(src_rq);
 	trace_sched_migration_update_sum(dest_rq);
 
+done:
 	if (p->state == TASK_WAKING)
 		double_rq_unlock(src_rq, dest_rq);
 
-	if (cpumask_test_cpu(new_cpu,
+	if (!freq_notify && cpumask_test_cpu(new_cpu,
 			     &src_rq->freq_domain_cpumask))
 		return;
 
@@ -2057,7 +2140,7 @@ static void fixup_busy_time(struct task_struct *p, int new_cpu)
 
 static inline void
 update_task_ravg(struct task_struct *p, struct rq *rq,
-			 int event, u64 wallclock, int *long_sleep, u64 irqtime)
+			 int event, u64 wallclock, u64 irqtime)
 {
 }
 
@@ -2121,7 +2204,8 @@ void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 
 		atomic_notifier_call_chain(&task_migration_notifier, 0, &tmn);
 
-		if (sched_enable_hmp && (p->on_rq || p->state == TASK_WAKING))
+		if (sched_enable_hmp && (p->on_rq || p->state == TASK_WAKING)
+				&& !sched_freq_legacy_mode)
 			fixup_busy_time(p, new_cpu);
 	}
 
@@ -2600,9 +2684,13 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	unsigned long flags;
 	int cpu, success = 0;
 	unsigned long src_cpu;
+	//#ifdef VENDOR_EDIT	
+    //chaoying.chen@EXP.BaseDrv.patch, add patch CR/793168 2015/04/27 for memory corruption
+	int notify = 0;
+    struct migration_notify_data mnd;
+	//#endif/*VENDOR_EDIT*/
 #ifdef CONFIG_SMP
 	struct rq *rq;
-	int long_sleep = 0;
 	u64 wallclock;
 #endif
 
@@ -2640,8 +2728,8 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 
 	raw_spin_lock(&rq->lock);
 	wallclock = sched_clock();
-	update_task_ravg(rq->curr, rq, TASK_UPDATE, wallclock, NULL, 0);
-	update_task_ravg(p, rq, TASK_WAKE, wallclock,  &long_sleep, 0);
+	update_task_ravg(rq->curr, rq, TASK_UPDATE, wallclock, 0);
+	update_task_ravg(p, rq, TASK_WAKE, wallclock, 0);
 	raw_spin_unlock(&rq->lock);
 
 	p->sched_contributes_to_load = !!task_contributes_to_load(p);
@@ -2671,12 +2759,20 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	ttwu_queue(p, cpu);
 stat:
 	ttwu_stat(p, cpu, wake_flags);
+//#ifdef VENDOR_EDIT	
+//chaoying.chen@EXP.BaseDrv.patch, add patch CR/793168 2015/04/27 for memory corruption
+#if 0	
 out:
 	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
-
+#endif
+//#endif/*VENDOR_EDIT*/
 	if (task_notify_on_migrate(p)) {
+//#ifdef VENDOR_EDIT	
+//chaoying.chen@EXP.BaseDrv.patch, add patch CR/793168 2015/04/27 for memory corruption
+#if 0		
 		struct migration_notify_data mnd;
-
+#endif
+//#endif/*VENDOR_EDIT*/
 		mnd.src_cpu = src_cpu;
 		mnd.dest_cpu = cpu;
 		mnd.load = pct_task_load(p);
@@ -2690,10 +2786,25 @@ out:
 		 */
 		if ((src_cpu != cpu) || (mnd.load >
 					sysctl_sched_wakeup_load_threshold))
+        //#ifdef VENDOR_EDIT	
+        //chaoying.chen@EXP.BaseDrv.patch, add patch CR/793168 2015/04/27 for memory corruption
+		#if 0			
 			atomic_notifier_call_chain(&migration_notifier_head,
 					   0, (void *)&mnd);
+		#endif
+		notify = 1;
+		//#endif/*VENDOR_EDIT*/
 	}
 
+//#ifdef VENDOR_EDIT	
+//chaoying.chen@EXP.BaseDrv.patch, add patch CR/793168 2015/04/27 for memory corruption
+out:
+	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+
+	if (notify)
+		atomic_notifier_call_chain(&migration_notifier_head,
+					   0, (void *)&mnd);
+//#endif/*VENDOR_EDIT*/
 	return success;
 }
 
@@ -2708,7 +2819,6 @@ out:
 static void try_to_wake_up_local(struct task_struct *p)
 {
 	struct rq *rq = task_rq(p);
-	int long_sleep = 0;
 
 	if (rq != this_rq() || p == current) {
 		printk_sched("%s: Failed to wakeup task %d (%s), rq = %p, this_rq = %p, p = %p, current = %p\n",
@@ -2731,8 +2841,8 @@ static void try_to_wake_up_local(struct task_struct *p)
 	if (!p->on_rq) {
 		u64 wallclock = sched_clock();
 
-		update_task_ravg(rq->curr, rq, TASK_UPDATE, wallclock, NULL, 0);
-		update_task_ravg(p, rq, TASK_WAKE, wallclock, &long_sleep, 0);
+		update_task_ravg(rq->curr, rq, TASK_UPDATE, wallclock, 0);
+		update_task_ravg(p, rq, TASK_WAKE, wallclock, 0);
 		ttwu_activate(rq, p, ENQUEUE_WAKEUP);
 	}
 
@@ -3928,7 +4038,7 @@ void scheduler_tick(void)
 	update_rq_clock(rq);
 	update_cpu_load_active(rq);
 	curr->sched_class->task_tick(rq, curr, 0);
-	update_task_ravg(rq->curr, rq, TASK_UPDATE, sched_clock(), NULL, 0);
+	update_task_ravg(rq->curr, rq, TASK_UPDATE, sched_clock(), 0);
 	raw_spin_unlock(&rq->lock);
 
 	perf_event_task_tick();
@@ -4197,8 +4307,8 @@ need_resched:
 	put_prev_task(rq, prev);
 	next = pick_next_task(rq);
 	wallclock = sched_clock();
-	update_task_ravg(prev, rq, PUT_PREV_TASK, wallclock, NULL, 0);
-	update_task_ravg(next, rq, PICK_NEXT_TASK, wallclock, NULL, 0);
+	update_task_ravg(prev, rq, PUT_PREV_TASK, wallclock, 0);
+	update_task_ravg(next, rq, PICK_NEXT_TASK, wallclock, 0);
 	clear_tsk_need_resched(prev);
 	rq->skip_clock_update = 0;
 

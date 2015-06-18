@@ -104,6 +104,8 @@
 #define REG02_BQ24196_FAST_CHARGING_CURRENT_LIMIT_SHIFT         2
 #define BQ24196_MIN_FAST_CURRENT_MA                             512
 #define BQ24196_MAX_FAST_CURRENT_MA                             2048
+#define BQ24196_MIN_FAST_CURRENT_MA_ALLOWED						1088
+#define BQ24196_MAX_FAST_CURRENT_MA_20_PERCENT					908
 #define BQ24196_FAST_CURRENT_STEP_MA                            64
 
 #define REG02_BQ24196_FAST_CHARGING_CURRENT_FORCE20PCT_MASK     BIT(0)
@@ -276,6 +278,11 @@ OPPO_BQ24196_EXT int bq24196_get_charging_status(struct opchg_charger *chip);
 OPPO_BQ24196_EXT int bq24196_set_otg_regulator_enable(struct regulator_dev *rdev);
 OPPO_BQ24196_EXT int bq24196_set_otg_regulator_disable(struct regulator_dev *rdev);
 OPPO_BQ24196_EXT int bq24196_get_otg_regulator_is_enable(struct regulator_dev *rdev);
+#if 1
+OPPO_BQ24196_EXT int bq24196_set_otg_enable(void);
+OPPO_BQ24196_EXT int bq24196_set_otg_disable(void);
+OPPO_BQ24196_EXT int bq24196_get_otg_enable(void);
+#endif
 OPPO_BQ24196_EXT int bq24196_set_reset_charger(struct opchg_charger *chip, bool reset);
 OPPO_BQ24196_EXT int bq24196_set_charging_disable(struct opchg_charger *chip, bool disable);
 OPPO_BQ24196_EXT int bq24196_set_suspend_enable(struct opchg_charger *chip, bool enable);

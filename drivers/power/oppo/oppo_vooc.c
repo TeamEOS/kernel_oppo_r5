@@ -16,7 +16,7 @@
 *******************************************************************************/
 
 #define OPPO_VOOC_PAR
-#include <oppo_inc.h>
+#include "oppo_inc.h"
 
 
 
@@ -36,7 +36,9 @@
 
 
 //static struct i2c_client *pic16F_client;
-
+int pic_fw_ver_count_14005 = sizeof(Pic16F_firmware_data_14005);
+int pic_fw_ver_count_15011 = sizeof(Pic16F_firmware_data_15011);
+int pic_fw_ver_count_15018 = sizeof(Pic16F_firmware_data_15018);
 int pic_fw_ver_count = sizeof(Pic16F_firmware_data);
 int pic_need_to_up_fw = 0;
 int pic_have_updated = 0;
@@ -63,17 +65,127 @@ static bool pic16f_fw_check(struct opchg_fast_charger *chip)
 		i2c_smbus_read_i2c_block_data(chip->client,0x03,16,&data_buf[16]);
 		
 		addr = 0x200 + i * 16;
-/*		
-		pr_err("%s addr = 0x%x,%x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x\n",__func__,addr,
-			data_buf[0],data_buf[1],data_buf[2],data_buf[3],data_buf[4],data_buf[5],data_buf[6],data_buf[7],
-			data_buf[8],data_buf[9],data_buf[10],data_buf[11],data_buf[12],data_buf[13],data_buf[14],
-			data_buf[15],data_buf[16],data_buf[17],data_buf[18],data_buf[19],data_buf[20],data_buf[21],data_buf[22],
-			data_buf[23],data_buf[24],data_buf[25],data_buf[26],data_buf[27],data_buf[28],data_buf[29],data_buf[30],
-			data_buf[31]);	
-*/		
-		//compare recv_buf with Pic16F_firmware_data[] begin
-		if(is_project(OPPO_14005) || is_project(OPPO_14023)){
-			if(addr == ((Pic16F_firmware_data[fw_line * 34 + 1] << 8) | Pic16F_firmware_data[fw_line * 34])){
+		if(is_project(OPPO_14005))
+		{
+			if(addr == ((Pic16F_firmware_data_14005[fw_line * 34 + 1] << 8) | Pic16F_firmware_data_14005[fw_line * 34]))
+			{
+				if(data_buf[0] != Pic16F_firmware_data_14005[fw_line * 34 + 2]){
+					pr_err("%s fail,data_buf[0]:0x%x != Pic16F_fimware_data[%d]:0x%x\n",__func__,
+							data_buf[0],(fw_line * 34 + 2),Pic16F_firmware_data_14005[fw_line * 34 + 2]);
+					pr_err("%s addr = 0x%x,%x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x\n",__func__,addr,
+							data_buf[0],data_buf[1],data_buf[2],data_buf[3],data_buf[4],data_buf[5],data_buf[6],data_buf[7],
+							data_buf[8],data_buf[9],data_buf[10],data_buf[11],data_buf[12],data_buf[13],data_buf[14],
+							data_buf[15],data_buf[16],data_buf[17],data_buf[18],data_buf[19],data_buf[20],data_buf[21],data_buf[22],
+							data_buf[23],data_buf[24],data_buf[25],data_buf[26],data_buf[27],data_buf[28],data_buf[29],data_buf[30],
+							data_buf[31]);	
+					return FW_CHECK_FAIL;
+				}
+				fw_line++;
+			}
+			else
+			{
+				if(addr == ((Pic16F_firmware_data_14005[fw_line * 34 + 1] << 8) | Pic16F_firmware_data_14005[fw_line * 34]))
+				{
+					for(j = 0;j < 32;j++){
+						if(data_buf[j] != Pic16F_firmware_data_14005[fw_line * 34 + 2 + j]){
+							pr_err("%s fail,data_buf[%d]:0x%x != Pic16F_fimware_data[%d]:0x%x\n",__func__,
+								j,data_buf[j],(fw_line * 34 + 2 + j),Pic16F_firmware_data_14005[fw_line * 34 + 2 + j]);
+
+							return FW_CHECK_FAIL;
+						}
+					}	
+					fw_line++;
+				}
+				else {
+					#if 0
+					pr_err("%s addr dismatch,addr:0x%x,pic_data:0x%x\n",__func__,
+						addr,(Pic16F_firmware_data_14005[fw_line * 34 + 1] << 8) | Pic16F_firmware_data_14005[fw_line * 34]);
+					#endif
+				}
+			}
+		}
+		else if(is_project(OPPO_15011))
+		{
+			if(addr == ((Pic16F_firmware_data_15011[fw_line * 34 + 1] << 8) | Pic16F_firmware_data_15011[fw_line * 34]))
+			{
+				if(data_buf[0] != Pic16F_firmware_data_15011[fw_line * 34 + 2]){
+					pr_err("%s fail,data_buf[0]:0x%x != Pic16F_fimware_data[%d]:0x%x\n",__func__,
+							data_buf[0],(fw_line * 34 + 2),Pic16F_firmware_data_15011[fw_line * 34 + 2]);
+					pr_err("%s addr = 0x%x,%x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x\n",__func__,addr,
+							data_buf[0],data_buf[1],data_buf[2],data_buf[3],data_buf[4],data_buf[5],data_buf[6],data_buf[7],
+							data_buf[8],data_buf[9],data_buf[10],data_buf[11],data_buf[12],data_buf[13],data_buf[14],
+							data_buf[15],data_buf[16],data_buf[17],data_buf[18],data_buf[19],data_buf[20],data_buf[21],data_buf[22],
+							data_buf[23],data_buf[24],data_buf[25],data_buf[26],data_buf[27],data_buf[28],data_buf[29],data_buf[30],
+							data_buf[31]);	
+					return FW_CHECK_FAIL;
+				}
+				fw_line++;
+			}
+			else
+			{
+				if(addr == ((Pic16F_firmware_data_15011[fw_line * 34 + 1] << 8) | Pic16F_firmware_data_15011[fw_line * 34]))
+				{
+					for(j = 0;j < 32;j++){
+						if(data_buf[j] != Pic16F_firmware_data_15011[fw_line * 34 + 2 + j]){
+							pr_err("%s fail,data_buf[%d]:0x%x != Pic16F_fimware_data[%d]:0x%x\n",__func__,
+								j,data_buf[j],(fw_line * 34 + 2 + j),Pic16F_firmware_data_15011[fw_line * 34 + 2 + j]);
+
+							return FW_CHECK_FAIL;
+						}
+					}	
+					fw_line++;
+				}
+				else {
+					#if 0
+					pr_err("%s addr dismatch,addr:0x%x,pic_data:0x%x\n",__func__,
+						addr,(Pic16F_firmware_data_15011[fw_line * 34 + 1] << 8) | Pic16F_firmware_data_15011[fw_line * 34]);
+					#endif
+				}
+			}
+		}
+		else if(is_project(OPPO_15018))
+		{
+			if(addr == ((Pic16F_firmware_data_15018[fw_line * 34 + 1] << 8) | Pic16F_firmware_data_15018[fw_line * 34]))
+			{
+				if(data_buf[0] != Pic16F_firmware_data_15018[fw_line * 34 + 2]){
+					pr_err("%s fail,data_buf[0]:0x%x != Pic16F_fimware_data[%d]:0x%x\n",__func__,
+							data_buf[0],(fw_line * 34 + 2),Pic16F_firmware_data_15018[fw_line * 34 + 2]);
+					pr_err("%s addr = 0x%x,%x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x\n",__func__,addr,
+							data_buf[0],data_buf[1],data_buf[2],data_buf[3],data_buf[4],data_buf[5],data_buf[6],data_buf[7],
+							data_buf[8],data_buf[9],data_buf[10],data_buf[11],data_buf[12],data_buf[13],data_buf[14],
+							data_buf[15],data_buf[16],data_buf[17],data_buf[18],data_buf[19],data_buf[20],data_buf[21],data_buf[22],
+							data_buf[23],data_buf[24],data_buf[25],data_buf[26],data_buf[27],data_buf[28],data_buf[29],data_buf[30],
+							data_buf[31]);	
+					return FW_CHECK_FAIL;
+				}
+				fw_line++;
+			}
+			else
+			{
+				if(addr == ((Pic16F_firmware_data_15018[fw_line * 34 + 1] << 8) | Pic16F_firmware_data_15018[fw_line * 34]))
+				{
+					for(j = 0;j < 32;j++){
+						if(data_buf[j] != Pic16F_firmware_data_15018[fw_line * 34 + 2 + j]){
+							pr_err("%s fail,data_buf[%d]:0x%x != Pic16F_fimware_data[%d]:0x%x\n",__func__,
+								j,data_buf[j],(fw_line * 34 + 2 + j),Pic16F_firmware_data_15018[fw_line * 34 + 2 + j]);
+
+							return FW_CHECK_FAIL;
+						}
+					}	
+					fw_line++;
+				}
+				else {
+					#if 0
+					pr_err("%s addr dismatch,addr:0x%x,pic_data:0x%x\n",__func__,
+						addr,(Pic16F_firmware_data_15011[fw_line * 34 + 1] << 8) | Pic16F_firmware_data_15011[fw_line * 34]);
+					#endif
+				}
+			}
+		}
+		else
+		{
+			if(addr == ((Pic16F_firmware_data[fw_line * 34 + 1] << 8) | Pic16F_firmware_data[fw_line * 34]))
+			{
 				if(data_buf[0] != Pic16F_firmware_data[fw_line * 34 + 2]){
 					pr_err("%s fail,data_buf[0]:0x%x != Pic16F_fimware_data[%d]:0x%x\n",__func__,
 							data_buf[0],(fw_line * 34 + 2),Pic16F_firmware_data[fw_line * 34 + 2]);
@@ -87,28 +199,34 @@ static bool pic16f_fw_check(struct opchg_fast_charger *chip)
 				}
 				fw_line++;
 			}
-		} else {
-			if(addr == ((Pic16F_firmware_data[fw_line * 34 + 1] << 8) | Pic16F_firmware_data[fw_line * 34])){
-				for(j = 0;j < 32;j++){
-					if(data_buf[j] != Pic16F_firmware_data[fw_line * 34 + 2 + j]){
-						pr_err("%s fail,data_buf[%d]:0x%x != Pic16F_fimware_data[%d]:0x%x\n",__func__,
-							j,data_buf[j],(fw_line * 34 + 2 + j),Pic16F_firmware_data[fw_line * 34 + 2 + j]);
-						return FW_CHECK_FAIL;
-					}
-				}	
-				fw_line++;
-			} else {
-			//pr_err("%s addr dismatch,addr:0x%x,pic_data:0x%x\n",__func__,
-					//addr,(Pic16F_firmware_data[fw_line * 34 + 1] << 8) | Pic16F_firmware_data[fw_line * 34]);
+			else
+			{
+				if(addr == ((Pic16F_firmware_data[fw_line * 34 + 1] << 8) | Pic16F_firmware_data[fw_line * 34]))
+				{
+					for(j = 0;j < 32;j++){
+						if(data_buf[j] != Pic16F_firmware_data[fw_line * 34 + 2 + j]){
+							pr_err("%s fail,data_buf[%d]:0x%x != Pic16F_fimware_data[%d]:0x%x\n",__func__,
+								j,data_buf[j],(fw_line * 34 + 2 + j),Pic16F_firmware_data[fw_line * 34 + 2 + j]);
+							return FW_CHECK_FAIL;
+						}
+					}	
+					fw_line++;
+				}
+				else
+				 {
+					#if 0
+					pr_err("%s addr dismatch,addr:0x%x,pic_data:0x%x\n",__func__,
+						addr,(Pic16F_firmware_data[fw_line * 34 + 1] << 8) | Pic16F_firmware_data[fw_line * 34]);
+					#endif
+				}
 			}
-		}
-		//compare recv_buf with Pic16F_firmware_data[] end
+		}	
 	}
 	pr_info("%s success\n",__func__);
 	return FW_CHECK_SUCCESS;
 	
 i2c_err:
-	pr_err("%s failed\n",__func__);
+	pr_err("%s is not success\n",__func__);
 	return FW_CHECK_FAIL;
 }
 
@@ -215,8 +333,23 @@ update_fw:
 	}
 	msleep(10);
 
-	pic16f_fw_write(chip,Pic16F_firmware_data,0,sizeof(Pic16F_firmware_data) - 34);
-
+	if(is_project(OPPO_14005))
+	{
+		pic16f_fw_write(chip,Pic16F_firmware_data_14005,0,sizeof(Pic16F_firmware_data_14005) - 34);
+	}
+	else if(is_project(OPPO_15011))
+	{
+		pic16f_fw_write(chip,Pic16F_firmware_data_15011,0,sizeof(Pic16F_firmware_data_15011) - 34);
+	}
+	else if(is_project(OPPO_15018))
+	{
+		pic16f_fw_write(chip,Pic16F_firmware_data_15018,0,sizeof(Pic16F_firmware_data_15018) - 34);
+	}
+	else
+	{
+		pic16f_fw_write(chip,Pic16F_firmware_data,0,sizeof(Pic16F_firmware_data) - 34);
+	}
+	
 	//fw check begin:read data from pic1503/1508,and compare it with Pic16F_firmware_data[]
 	rc = pic16f_fw_check(chip);
 	if(rc == FW_CHECK_FAIL){
@@ -230,7 +363,23 @@ update_fw:
 	//fw check end
 
 	//write 0x7F0~0x7FF(0x7FF = 0x3455)
-	rc = pic16f_fw_write(chip,Pic16F_firmware_data,sizeof(Pic16F_firmware_data) - 34,34);
+	if(is_project(OPPO_14005))
+	{
+		rc = pic16f_fw_write(chip,Pic16F_firmware_data_14005,sizeof(Pic16F_firmware_data_14005) - 34,34);
+	}
+	else if(is_project(OPPO_15011))
+	{
+		rc = pic16f_fw_write(chip,Pic16F_firmware_data_15011,sizeof(Pic16F_firmware_data_15011) - 34,34);
+	}
+	else if(is_project(OPPO_15018))
+	{
+		rc = pic16f_fw_write(chip,Pic16F_firmware_data_15018,sizeof(Pic16F_firmware_data_15018) - 34,34);
+	}
+	else
+	{
+		rc = pic16f_fw_write(chip,Pic16F_firmware_data,sizeof(Pic16F_firmware_data) - 34,34);
+	}
+	
 	if(rc < 0){
 		goto update_fw_err;
 	}
@@ -270,7 +419,7 @@ update_fw_err:
 			//pr_err("%s pull down switch fail\n",__func__);
 		}
 	}
-	pr_err("%s pic16F update_fw fail\n",__func__);
+	pr_err("%s pic16F update_fw is not success\n",__func__);
 	return 1;
 }
 

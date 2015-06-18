@@ -555,7 +555,7 @@ static __ref int mdss_mdp_splash_parse_dt(struct msm_fb_data_type *mfd)
 				"qcom,mdss-fb-splash-logo-enabled");
 #ifdef VENDOR_EDIT
 /* liuyan@Onlinerd.driver, 2014/10/14  Add for ftm sleep current too big */
-        if((get_boot_mode() == MSM_BOOT_MODE__FACTORY)&&(is_project(14005) || is_project(OPPO_14045))){
+        if((get_boot_mode() == MSM_BOOT_MODE__FACTORY)&&(is_project(14005) || is_project(OPPO_14045) || is_project(OPPO_15011) || is_project(OPPO_15018))){
             mfd->splash_info.splash_logo_enabled=1;
 	}
 #endif /*CONFIG_VENDOR_EDIT*/

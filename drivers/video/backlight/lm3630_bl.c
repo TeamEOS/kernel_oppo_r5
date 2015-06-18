@@ -32,6 +32,7 @@
 #include <mach/device_info.h>
 #include <mach/oppo_project.h>
 #include <mach/oppo_boot_mode.h>
+#include "../msm/mdss/mdss_dsi.h"
 #endif /*VENDOR_EDIT*/
 
 #define REG_CTRL	0x00
@@ -52,6 +53,19 @@
 #ifdef VENDOR_EDIT
 /* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/09/23  Add for register backlight info */
 #define REG_REVISION 0x1F
+
+static bool pwm_flag = false;
+static int backlight_level;
+extern int cabc_mode;
+extern int lcd_dev;
+
+int set_backlight_pwm(int state);
+
+#endif /*VENDOR_EDIT*/
+
+#ifdef VENDOR_EDIT
+/*Start 14051 Delte TS I2C pull gpio, TS I2C pull up is VREG_L6_1p8 By Yongpeng.Yi@Multi.Disp 2014-11-22 */ 
+struct regulator *bl_i2c_1v8 = NULL;
 #endif /*VENDOR_EDIT*/
 
 static struct lm3630_chip_data *lm3630_pchip;
@@ -106,13 +120,13 @@ static int lm3630_chip_init(struct lm3630_chip_data *pchip)
 		goto out;
 
     /* set initial current */
-    pr_err("%s REG_MAX_A:22\n", __func__);
-    ret = regmap_write(pchip->regmap, REG_MAXCU_A, 22);
+    pr_err("%s REG_MAX_A:20\n", __func__);
+    ret = regmap_write(pchip->regmap, REG_MAXCU_A, 20);
     if (ret < 0)
         goto out;
 
-    pr_err("%s REG_MAX_B:22\n", __func__);
-    ret = regmap_write(pchip->regmap, REG_MAXCU_B, 22);
+    pr_err("%s REG_MAX_B:20\n", __func__);
+    ret = regmap_write(pchip->regmap, REG_MAXCU_B, 20);
     if (ret < 0)
         goto out;
 
@@ -384,6 +398,7 @@ static void lm3630_backlight_unregister(struct lm3630_chip_data *pchip)
 }
 #else
 
+extern struct regulator *vddf_2v5;
 /* update and get brightness */
  int lm3630_bank_a_update_status(u32 bl_level)
 {
@@ -408,22 +423,83 @@ static void lm3630_backlight_unregister(struct lm3630_chip_data *pchip)
 		         //pr_err("%s yxr i2c_1v8_gpio_14045 --> 1\n", __func__);
 		     }
 	 	}
+			 if(vddf_2v5!=NULL && MSM_BOOT_MODE__FACTORY == get_boot_mode()){
+				ret = regulator_enable(vddf_2v5);
+				if (ret){
+					pr_err("lm3630 enable i2c 1.8v error ret = %d\n",ret);
+				}
+			 }
 	}
+/*Start Yongpeng.Yi@Multi.Disp 2014-12-06 add for open bl 1.8v*/
 	if(is_project(OPPO_14051)){
 	 	if(lm3630_pchip!=NULL){
-		     if (gpio_is_valid(lm3630_pchip->pdata->i2c_1v8_gpio_14051)){
-		 	     gpio_set_value((lm3630_pchip->pdata->i2c_1v8_gpio_14051), 1);
-		         gpio_direction_output((lm3630_pchip->pdata->i2c_1v8_gpio_14051), 1);
-		         //pr_err("%s yxr i2c_1v8_gpio_14051 --> 1\n", __func__);
+		     if (gpio_is_valid(lm3630_pchip->pdata->bl_1v8_gpio_14051)){
+		 	     gpio_set_value((lm3630_pchip->pdata->bl_1v8_gpio_14051), 1);
+		         gpio_direction_output((lm3630_pchip->pdata->bl_1v8_gpio_14051), 1);
+		         //pr_err("%s yxr bl_1v8_gpio_14051 --> 1\n", __func__);
 		     }
 	 	}
 	}
+/*End Yongpeng.Yi@Multi.Disp 2014-12-06 add for open bl 1.8v*/
+
+/*Start  TS I2C pull up is VREG_L6_1p8 By Yongpeng.Yi@Multi.Disp 2014-11-27 */
+	if(is_project(OPPO_14051)){
+	 	if(lm3630_pchip!=NULL && bl_i2c_1v8!=NULL){
+			regulator_set_optimum_mode(bl_i2c_1v8,100000);
+			ret = regulator_enable(bl_i2c_1v8);
+			if (ret){
+				pr_err("lm3630_bank_a_update_status: bl_i2c_1v8 enable error ret = %d\n",ret);
+			}		     
+	 	}
+	}
+/*  TS I2C pull up is VREG_L6_1p8 By Yongpeng.Yi@Multi.Disp 2014-11-27 */
+
+	
 	/* brightness 0 means disable */
 	if (!bl_level) {
         ret = regmap_write(lm3630_pchip->regmap, REG_BRT_A, 0);
 		ret = regmap_update_bits(pchip->regmap, REG_CTRL, 0x80, 0x80);
 		if (ret < 0)
 			goto out;
+
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/12/03  Add for ftm current too big */
+		if(is_project(OPPO_14045) && MSM_BOOT_MODE__FACTORY == get_boot_mode()){
+				if(lm3630_pchip!=NULL){
+					 if (gpio_is_valid(lm3630_pchip->pdata->i2c_1v8_gpio_14045)){
+						 gpio_set_value((lm3630_pchip->pdata->i2c_1v8_gpio_14045), 0);
+						 gpio_direction_output((lm3630_pchip->pdata->i2c_1v8_gpio_14045), 0);
+						 pr_err("%s yxr i2c_1v8_gpio_14045 --> 0\n", __func__);
+					 }
+				}
+			if(vddf_2v5!=NULL){
+				ret = regulator_disable(vddf_2v5);
+				if (ret){
+					pr_err("lm3630 disable i2c 1.8v error ret = %d\n",ret);
+				}
+			 }
+		}
+
+/* YongPeng.Yi@PhoneSW.Multimedia, 2014/12/05 Add for 14051 ftm current too big */
+	if(is_project(OPPO_14051) && MSM_BOOT_MODE__FACTORY == get_boot_mode()){
+		if(lm3630_pchip!=NULL){
+		     if (gpio_is_valid(lm3630_pchip->pdata->bl_1v8_gpio_14051)){
+		 	     gpio_set_value((lm3630_pchip->pdata->bl_1v8_gpio_14051), 0);
+		         gpio_direction_output((lm3630_pchip->pdata->bl_1v8_gpio_14051), 0);
+		         pr_err("%s YYP bl_1v8_gpio_14051 --> 0\n", __func__);
+		     }
+
+		if(bl_i2c_1v8!=NULL){
+			regulator_set_optimum_mode(bl_i2c_1v8,100);
+			ret = regulator_disable(bl_i2c_1v8);
+			if (ret){
+				pr_err("lm3630_bank_a_update_status: regulator_disable error ret = %d\n",ret);
+			}
+		}
+		}
+	}
+#endif /*VENDOR_EDIT*/
+		
 		return bl_level;
 	}
 
@@ -434,7 +510,74 @@ static void lm3630_backlight_unregister(struct lm3630_chip_data *pchip)
 		if (ret < 0)
 			goto out;
 		mdelay(1);
+		
+#ifndef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2015/02/26  Modify for 14045 shutdown cabc when brightness below 20 */
 		ret = regmap_write(pchip->regmap, REG_BRT_A, bl_level);
+#else /*VENDOR_EDIT*/
+		if(!is_project(14045)){
+			ret = regmap_write(pchip->regmap, REG_BRT_A, bl_level);
+		}else{
+			if(lcd_dev==LCD_14045_17_VIDEO || lcd_dev==LCD_14045_17_CMD){
+				if(bl_level>20)
+					ret = regmap_write(pchip->regmap,
+						   REG_BRT_A, bl_level);
+				else 
+					ret = regmap_write(pchip->regmap,
+						   REG_BRT_A, 2+(bl_level-2)*9/18);
+			}else{
+				ret = regmap_write(pchip->regmap, REG_BRT_A, bl_level);
+			}
+		}
+		
+		backlight_level =  bl_level;
+		if(is_project(OPPO_14045) && (lcd_dev == LCD_14045_17_VIDEO || lcd_dev == LCD_14045_17_CMD) ){
+			if(bl_level <= 0x14 && pwm_flag==true){
+				set_backlight_pwm(0);
+			}else if(bl_level > 0x14 && pwm_flag==false && cabc_mode >0){
+				set_backlight_pwm(1);
+			}
+		}
+#endif /*VENDOR_EDIT*/
+		
+		
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/12/03  Add for ftm current too big */
+		if(is_project(OPPO_14045) && MSM_BOOT_MODE__FACTORY == get_boot_mode()){
+				if(lm3630_pchip!=NULL){
+					 if (gpio_is_valid(lm3630_pchip->pdata->i2c_1v8_gpio_14045)){
+						 gpio_set_value((lm3630_pchip->pdata->i2c_1v8_gpio_14045), 0);
+						 gpio_direction_output((lm3630_pchip->pdata->i2c_1v8_gpio_14045), 0);
+						 pr_err("%s yxr i2c_1v8_gpio_14045 --> 0\n", __func__);
+					 }
+				}
+			if(vddf_2v5!=NULL){
+				ret = regulator_disable(vddf_2v5);
+				if (ret){
+					pr_err("lm3630 disable i2c 1.8v error ret = %d\n",ret);
+				}
+			 }
+		}
+
+/* YongPeng.Yi@PhoneSW.Multimedia, 2014/12/05 Add for 14051 ftm current too big */
+	if(is_project(OPPO_14051) && MSM_BOOT_MODE__FACTORY == get_boot_mode()){
+		if(lm3630_pchip!=NULL){
+		     if (gpio_is_valid(lm3630_pchip->pdata->bl_1v8_gpio_14051)){
+		 	     gpio_set_value((lm3630_pchip->pdata->bl_1v8_gpio_14051), 0);
+		         gpio_direction_output((lm3630_pchip->pdata->bl_1v8_gpio_14051), 0);
+		         pr_err("%s YYP bl_1v8_gpio_14051 --> 0\n", __func__);
+		     }
+
+		if(bl_i2c_1v8!=NULL){
+			regulator_set_optimum_mode(bl_i2c_1v8,100);
+			ret = regulator_disable(bl_i2c_1v8);
+			if (ret){
+				pr_err("lm3630_bank_a_update_status: regulator_disable error ret = %d\n",ret);
+			}
+		}
+		}
+	}
+#endif /*VENDOR_EDIT*/
 
         return bl_level;
 out:
@@ -530,11 +673,14 @@ static int lm3630_dt(struct device *dev, struct lm3630_platform_data *pdata)
     	if (!gpio_is_valid(pdata->i2c_1v8_gpio_14045))
 		    pr_err("%s:%d, Backligh i2c_1v8_gpio_14045 not specified\n", __func__, __LINE__);
 	}
+	/*Start Delte TS I2C pull gpio, TS I2C pull up is VREG_L6_1p8  By Yongpeng.Yi@Multi.Disp 2014-11-22 */ 
 	if(is_project(OPPO_14051)){
-		pdata->i2c_1v8_gpio_14051 = of_get_named_gpio(np, "bl_i2c_1v8_enable_gpio", 0);
-    	if (!gpio_is_valid(pdata->i2c_1v8_gpio_14051))
-		    pr_err("%s:%d, Backligh i2c_1v8_gpio_14051 not specified\n", __func__, __LINE__);
+		pdata->bl_1v8_gpio_14051 = of_get_named_gpio(np, "bl_1v8_enable_gpio", 0);
+		pr_err("yyptest pdata->bl_1v8_gpio_14051 = %d\n", pdata->bl_1v8_gpio_14051);
+    	if (!gpio_is_valid(pdata->bl_1v8_gpio_14051))
+		    pr_err("%s:%d, Backligh bl_1v8_gpio_14051 not specified\n", __func__, __LINE__);
 	}
+	/*End Delte TS I2C pull gpio, TS I2C pull up is VREG_L6_1p8  By Yongpeng.Yi@Multi.Disp 2014-11-22 */ 	
 #if 0														
 	pdata->bank_b_ctrl=BANK_B_CTRL_DISABLE;
 	pdata->init_brt_led1=200;
@@ -593,7 +739,7 @@ static int lm3630_probe(struct i2c_client *client,
     static char *temp;
 #endif /*VENDOR_EDIT*/
 	
-	pr_err("%s YXQ Enter\n", __func__);
+	pr_err("%s Enter\n", __func__);
 	if (client->dev.of_node) {
 		pdata = devm_kzalloc(&client->dev,
 			sizeof(struct lm3630_platform_data), GFP_KERNEL);
@@ -653,13 +799,38 @@ static int lm3630_probe(struct i2c_client *client,
 	 	}
 	     pr_err("%s yxr i2c_1v8_gpio_14045=0x%x\n", __func__, pdata->i2c_1v8_gpio_14045);
 	}
+/*Start Delte TS I2C pull gpio, TS I2C pull up is VREG_L6_1p8 By Yongpeng.Yi@Multi.Disp 2014-11-22 */ 
 	if(is_project(OPPO_14051)){
-		ret = gpio_request(pdata->i2c_1v8_gpio_14051, "i2c_1v8_gpio_14051");
+		ret = gpio_request(pdata->bl_1v8_gpio_14051, "bl_1v8_gpio_14051");
 	 	if (ret) {
-	 		pr_err("request i2c_1v8_gpio_14051 gpio failed, ret=%d\n", ret);
+	 		pr_err("request bl_1v8_gpio_14051 gpio failed, ret=%d\n", ret);
 	 	}
-	     pr_err("%s yxr i2c_1v8_gpio_14051=0x%x\n", __func__, pdata->i2c_1v8_gpio_14051);
+	     pr_err("%s yyptest bl_1v8_gpio_14051=0x%x\n", __func__, pdata->bl_1v8_gpio_14051);
 	}
+
+	if(is_project(OPPO_14051)){
+	    int rc = 0;
+
+		bl_i2c_1v8 = regulator_get(&client->dev, "bl_i2c_1v8");
+		if( IS_ERR(bl_i2c_1v8) ){
+			rc = PTR_ERR(bl_i2c_1v8);
+			pr_err("Regulator get failed bl_i2c_1v8 rc=%d\n", rc);	
+		}
+		if(bl_i2c_1v8!=NULL){
+			pr_err("%s bl_i2c_1v8 = %p\n",__func__,bl_i2c_1v8);
+			regulator_set_voltage(bl_i2c_1v8,1800000,1800000);
+			regulator_set_optimum_mode(bl_i2c_1v8,100000);
+			rc = regulator_enable(bl_i2c_1v8);
+			if (rc){
+				pr_err("bl_i2c_1v8 enable error ret = %d\n",rc);
+			}
+		}
+		else
+		{
+			pr_err("bl_i2c_1v8 is null error\n");
+		}
+	}	
+/*End Delte TS I2C pull gpio, TS I2C pull up is VREG_L6_1p8 By Yongpeng.Yi@Multi.Disp 2014-11-22 */		
 //HW enable
 
 	pchip->regmap = devm_regmap_init_i2c(client, &lm3630_regmap);
@@ -770,8 +941,32 @@ MODULE_DEVICE_TABLE(i2c, lm3630_id);
 static int lm3630_suspend(struct i2c_client *client, pm_message_t mesg)
 {
 	int rc ;
-	
+	/* YongPeng.Yi@PhoneSW.Multimedia, 2014/12/02 Add for || is_project(OPPO_14051) */
+	if(is_project(OPPO_14045)){
+		return 0;
+	}
 	pr_err("%s: YXQ backlight suspend.\n", __func__);
+
+
+/* YongPeng.Yi@PhoneSW.Multimedia, 2014/12/05 Add for 14051 standby current too big */
+	if(is_project(OPPO_14051)){
+		if(lm3630_pchip!=NULL){
+			if (gpio_is_valid(lm3630_pchip->pdata->bl_1v8_gpio_14051)){
+			gpio_set_value((lm3630_pchip->pdata->bl_1v8_gpio_14051), 0);
+			gpio_direction_output((lm3630_pchip->pdata->bl_1v8_gpio_14051), 0);
+		//pr_err("%s YYP bl_1v8_gpio_14051 --> 0 suspend\n", __func__);
+		}
+		if(bl_i2c_1v8!=NULL){
+			regulator_set_optimum_mode(bl_i2c_1v8,100);
+			rc = regulator_disable(bl_i2c_1v8);
+				if (rc){
+					pr_err("lm3630_bank_a_update_status: regulator_disable error ret = %d\n",rc);
+				}
+			}
+		}
+	}
+/* YongPeng.Yi@PhoneSW.Multimedia, 2014/12/05 Add for 14051 standby current too big */
+	
     //rc = regmap_write(lm3630_pchip->regmap, REG_BRT_A, 0);
 	rc  = regmap_update_bits(lm3630_pchip->regmap, REG_CTRL, 0x80, 0x80);
 	if (rc  < 0)
@@ -794,33 +989,42 @@ static int lm3630_resume(struct i2c_client *client)
     //rc = regmap_write(lm3630_pchip->regmap, REG_BRT_A, 0);
     if(is_project(OPPO_14045)){
 		//Xiaori.yuan add for temp power secquence
-		//return 0;
+		return 0;
 		//add end
 	 	if(lm3630_pchip!=NULL){
 		     if (gpio_is_valid(lm3630_pchip->pdata->i2c_1v8_gpio_14045)){
 		 	     gpio_set_value((lm3630_pchip->pdata->i2c_1v8_gpio_14045), 1);
 		         gpio_direction_output((lm3630_pchip->pdata->i2c_1v8_gpio_14045), 1);
-		         pr_err("%s yxr i2c_1v8_gpio_14045 --> 1\n", __func__);
+		         //pr_err("%s yxr i2c_1v8_gpio_14045 --> 1\n", __func__);
 		     }else{
 		     	 pr_err("%s yxr i2c_1v8_gpio_14045 is not specfied\n", __func__);
 		     }
 	 	}
 
 	}
+/*Start Delte TS I2C pull gpio, TS I2C pull up is VREG_L6_1p8 By Yongpeng.Yi@Multi.Disp 2014-11-22 */ 
 	if(is_project(OPPO_14051)){
-	    //Xiaori.yuan add for temp power secquence
+		/* YongPeng.Yi@PhoneSW.Multimedia, 2014/12/02 Add for || is_project(OPPO_14051) */
 		//return 0;
 		//add end
+
 	 	if(lm3630_pchip!=NULL){
-		     if (gpio_is_valid(lm3630_pchip->pdata->i2c_1v8_gpio_14051)){
-		 	     gpio_set_value((lm3630_pchip->pdata->i2c_1v8_gpio_14051), 1);
-		         gpio_direction_output((lm3630_pchip->pdata->i2c_1v8_gpio_14051), 1);
-		         pr_err("%s yxr i2c_1v8_gpio_14051 --> 1\n", __func__);
-		     }else{
-		     	 pr_err("%s yxr i2c_1v8_gpio_14051 is not specfied\n", __func__);
+		     if (gpio_is_valid(lm3630_pchip->pdata->bl_1v8_gpio_14051)){
+		 	     gpio_set_value((lm3630_pchip->pdata->bl_1v8_gpio_14051), 1);
+		         gpio_direction_output((lm3630_pchip->pdata->bl_1v8_gpio_14051), 1);
 		     }
 	 	}
+		
+	 	if(lm3630_pchip!=NULL && bl_i2c_1v8!=NULL){
+
+			regulator_set_optimum_mode(bl_i2c_1v8,100000);
+			rc = regulator_enable(bl_i2c_1v8);
+			if (rc){
+				pr_err("bl_i2c_1v8 enable error ret = %d\n",rc);
+			}
+	 	}
 	}
+/*End Delte TS I2C pull gpio, TS I2C pull up is VREG_L6_1p8 By Yongpeng.Yi@Multi.Disp 2014-11-22 */		
 	rc  = regmap_update_bits(lm3630_pchip->regmap, REG_CTRL, 0x80, 0x00);
 	if (rc  < 0)
 	{
@@ -834,6 +1038,33 @@ static int lm3630_resume(struct i2c_client *client)
 
 	return 0;
 }
+
+#ifdef VENDOR_EDIT
+/* Xiaori.Yuan@Mobile Phone Software Dept.Driver, 2014/02/17  Add for set cabc */
+int set_backlight_pwm(int state)
+{
+    int rc = 0;
+        if (get_boot_mode() == MSM_BOOT_MODE__NORMAL) {
+			if( state == 1 && backlight_level <= 0x14 ) return rc;
+        	if(state == 1)
+    		{
+    			if(pwm_flag == false){
+       			 	rc = regmap_update_bits(lm3630_pchip->regmap, REG_CONFIG, 0x01, 0x01);
+				 	pwm_flag = true;
+    			}
+   		    }
+   			else
+   			{
+   				if(pwm_flag == true){
+	    		     rc = regmap_update_bits(lm3630_pchip->regmap, REG_CONFIG, 0x01, 0x00);
+					 pwm_flag = false;
+   				}
+  			}
+        }
+    return rc;
+}
+#endif /*VENDOR_EDIT*/
+
 static struct i2c_driver lm3630_i2c_driver = {
 	.driver = {
 		   .name = LM3630_NAME,

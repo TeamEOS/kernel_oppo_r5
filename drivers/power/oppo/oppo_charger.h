@@ -27,6 +27,21 @@ OPCHG_SMB358_ID,
 OPCHG_SMB1357_ID,
 OPCHG_BQ24196_ID,
 };
+#if 0
+enum {
+OPCHG_VOOC_WATCHDOG_OUT,			// fast charging is  watchdog delay
+OPCHG_VOOC_FAST_OUT,				// fast charging is drop out delay
+OPCHG_VOOC_FAST_OUT_DELAY, 		// fast charging is drop out delay
+OPCHG_VOOC_TO_STANDARD,		// fast charging is to Standard charging
+OPCHG_VOOC_TO_FAST,			// fast charging is to fast charging	
+OPCHG_VOOC_IN_FAST,			// fast charging is in fast charging
+};
+#else
+#define  OPCHG_VOOC_WATCHDOG_OUT		0		// fast charging is  watchdog delay
+#define  OPCHG_VOOC_TO_STANDARD		1		// fast charging is to Standard charging
+#define  OPCHG_VOOC_TO_FAST			2		// fast charging is to fast charging	
+#define  OPCHG_VOOC_IN_FAST			3		// fast charging is in fast charging
+#endif
 
 struct smb_irq_info {
     const char                      *name;
@@ -70,5 +85,10 @@ OPPO_CHARGER_EXT void opchg_dump_regs(struct opchg_charger *chip);
 OPPO_CHARGER_EXT int qpnp_charger_type_get(struct opchg_charger *chip);
 OPPO_CHARGER_EXT void opchg_switch_to_usbin(struct opchg_charger *chip,bool enable);
 OPPO_CHARGER_EXT int opchg_get_otg_regulator_is_enable(struct regulator_dev *rdev);
+#if 1
+OPPO_CHARGER_EXT int opchg_set_otg_enable(void);
+OPPO_CHARGER_EXT int opchg_set_otg_disable(void);
+OPPO_CHARGER_EXT int opchg_get_otg_enable(void);
+#endif
 
 #endif /*_OPPO_CHARGER_H_*/

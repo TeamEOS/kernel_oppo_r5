@@ -3301,7 +3301,10 @@ static int mmc_blk_probe(struct mmc_card *card)
 		case  0x90:
 			manufacturerid = "HYNIX";
 			break;
-			default:
+		case 0xFE:
+                        manufacturerid = "ELPIDA";
+                        break;
+                default:
 			manufacturerid = "unknown";
 			break;
 	}

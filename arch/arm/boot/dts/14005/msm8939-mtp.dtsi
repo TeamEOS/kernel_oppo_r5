@@ -22,6 +22,8 @@
 			reg = <0x20>;
 			interrupt-parent = <&msm_gpio>;
 			interrupts = <13 0x2008>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&ts_int_active>;   
 			synaptics,irq-gpio = <&msm_gpio 13 0x2008>;
 			/*synaptics,id1-gpio = <&msm_gpio 12 0x00>;
 			synaptics,id2-gpio = <&msm_gpio 66 0x00>;
@@ -47,10 +49,8 @@
 	
 	/*nanwei.Deng@bsp.drv add for charger start*/
 	i2c@78b8000 { /* BLSP1 QUP4 =i2c4*/
-                //#ifdef VENDOR_EDIT
-                /*chaoying.chen@EXP.BaseDrv.otg,2014/10/09  Modified for 14061 otg */
+		//Add bq24196_otg_supply for vbus_otg-supply by qiujianfeng
 		bq24196_otg_supply: bq24196_charger@6b {
-		//#endif /*VENDOR_EDIT*
 			status = "okay";
 			compatible = "ti,bq24196-charger";
 			reg = <0x6b>;
@@ -60,40 +60,47 @@
 			//qcom,fast_charger-gpio = <&msm_gpio 23 0x01>;			/*gpio fast_charger pin connects to.*/
 			//qcom,usbphy_on-gpio = <&msm_gpio 38 0x01>;			/*gpio fast_charger pin connects to.*/
 			//qcom,chg-valid-gpio= <&pm8941_gpios 0x02 0x01>;	/* */
-			qcom,fast-charger-project-sign= <1>;						/* fastcharger project sign*/	
 			//qcom,charging-disabled;											/*This can then be overriden writing the the module parameter "charging_disabled"*/
 			//qcom,chg-autonomous-mode;											/*it indicates that the charger is configured for autonomous operation*/
 			qcom,disable-apsd;										/*APSD */
 			qcom,bms-psy-name = "bms";									/*The main BMS device name */
 			//qcom,iterm-disabled;
-			qcom,iterm-ma = <150>;									/*Charge termination current*/
-			qcom,recharge-mv = <100>;									/* The minimum voltage drop for recharger*/
-			qcom,input-current-max-ma = <1500>;						/*Maximum input current.*/
 			qcom,charger-inhibit-disabled;							/* Charge Inhibit  */
 			qcom,chg-vadc = <&pm8916_vadc>;							/* Corresponding VADC device's phandle.*/
 			qcom,chg-adc_tm = <&pm8916_adc_tm>;						/* set recurring measurements and receive notification for batt_therm. */
 
+			qcom,iterm-ma = <150>;									/*Charge termination current*/
+			qcom,recharge-mv = <100>;									/* The minimum voltage drop for recharger*/
+			qcom,fast-charger-project-sign= <1>;						/* fastcharger project sign*/	
+			qcom,fastchg-current-max-ma = <1500>;						/*Maximum fast charging current.*/
+			qcom,input-current-max-ma = <1500>;						/*Maximum input current.*/
+			qcom,float-voltage-mv = <4320>;							/* from constant current charging to constant voltage chargeing for voltage threshold*/
+
 			qcom,hot_bat_decidegc = <550>;							/* hot battery temperature in decidegC = 55*/
 			qcom,temp_hot_vfloat_mv = <4100>;							/* hot battery temperature cutoff voltage =4.1V (45~55)*/
-			qcom,temp_hot_fastchg_current_ma = <600>;					/* hot battery temperature fast current   =0.75A (45~55)*/
+			qcom,temp_hot_fastchg_current_ma = <1000>;				/* hot battery temperature fast current   =0.75A (45~55)*/
 
 			qcom,warm_bat_decidegc = <490>;							/* Warm battery temperature in decidegC= 45*/
-			qcom,temp_warm_vfloat_mv = <4100>;						/* warn battery temperature cutoff voltage =4.1V (5~45)*/
-			qcom,temp_warm_fastchg_current_ma = <600>;				/* warn battery temperature fast current   =0.75A (5~45)*/
+			qcom,temp_warm_vfloat_mv = <4320>;						/* warn battery temperature cutoff voltage =4.1V (5~45)*/
+			qcom,temp_warm_fastchg_current_ma = <1500>;				/* warn battery temperature fast current   =0.75A (5~45)*/
 
-			qcom,pre_cool_bat_decidegc = <150>;						/* pre_cool battery temperature in decidegC= 5*/	
-			qcom,fastchg-current-max-ma = <1500>;						/*Maximum fast charging current.*/
-			qcom,float-voltage-mv = <4352>;							/* from constant current charging to constant voltage chargeing for voltage threshold*/
+			qcom,pre_normal_bat_decidegc = <150>;						/* pre_cool battery temperature in decidegC= 5*/	
+			qcom,temp_pre_normal_vfloat_mv = <4320>;						/* warn battery temperature cutoff voltage =4.1V (5~45)*/
+			qcom,temp_pre_normal_fastchg_current_ma = <1000>;				/* warn battery temperature fast current   =0.75A (5~45)*/
 
-			qcom,cool_bat_decidegc = <0>;								/* cool battery temperature in decidegC= 0*/
-			qcom,temp_pre_cool_vfloat_mv = <4350>;					/* pre_cool battery temperature cutoff voltage =4.2V (0~5)*/
-			qcom,temp_pre_cool_fastchg_current_ma = <600>;			/* pre_cool battery temperature fast current   =0.75A (0~5)*/
+			qcom,pre_cool_bat_decidegc = <100>;						/* pre_cool battery temperature in decidegC= 5*/	
+			qcom,temp_pre_cool_vfloat_mv = <4200>;					/* pre_cool battery temperature cutoff voltage =4.2V (0~5)*/
+			qcom,temp_pre_cool_fastchg_current_ma = <600>;		/* pre_cool battery temperature fast current   =0.75A (0~5)*/
 
-			qcom,cold_bat_decidegc = <100>;							/* cold battery temperature in decidegC= -10*/
+			qcom,cool_bat_decidegc = <0>;							/* cold battery temperature in decidegC= -10*/
 			qcom,temp_cool_vfloat_mv = <4000>;						/* cool battery temperature cutoff voltage =4.0V (-10~0) */
-			qcom,temp_cool_fastchg_current_ma = <200>;				/* cool battery temperature fast current   =0.25A(-10~0)*/
+			qcom,temp_cool_fastchg_current_ma = <300>;				/* cool battery temperature fast current   =0.25A(-10~0)*/
 			
+			qcom,cold_bat_decidegc = <100>;							/* cold battery temperature in decidegC= -10*/
 			qcom,bat_present_decidegc = <200>;						/* battery decidegc temperature in decidegC= -20*/
+			//qcom,non_standard_vfloat_mv = <4000>;
+			//qcom,non_standard_fastchg_current_ma = <512>;
+
 			//#ifdef VENDOR_EDIT
                          /*chaoying.chen@EXP.BaseDrv.otg,2014/10/09  Modified for 14061 otg */
 			//regulator-name = "boost_for_otg";
@@ -233,7 +240,11 @@
 	};
 
 	i2c@78b6000 { /* BLSP1 QUP2 */
-		mpu6050@68 { /* Gyroscope and accelerometer sensor combo */
+
+		 /* LiuPing@Phone.BSP.Sensor, 2014/12/30, remove unused sensor. */
+	        /* Gyroscope and accelerometer sensor combo */
+	        /*
+		mpu6050@68 {
 			compatible = "invn,mpu6050";
 			reg = <0x68>;
 			pinctrl-names = "mpu_default","mpu_sleep";
@@ -241,34 +252,35 @@
 			pinctrl-1 = <&mpu6050_sleep>;
 			interrupt-parent = <&msm_gpio>;
 			interrupts = <115 0x2>;
-			/*vdd-supply = <&pm8916_l17>;hufeng delete because camera use this ldo*/
-			/*vlogic-supply = <&pm8916_l16>;hufeng delete because camera use this ldo*/
+			vdd-supply = <&pm8916_l17>;
+			vlogic-supply = <&pm8916_l16>;
 			vi2c-supply = <&pm8916_l6>;
 			invn,gpio-int = <&msm_gpio 115 0x2>;
 			invn,place = "Portrait Down Back Side";
-		};
+		};*/
 
-
-		/* LiuPing@Phone.BSP.Sensor, 2014/07/30, add for alsps:apds99xx */
-		avago@39 { /* Ambient light and proximity sensor */
+		/* LiuPing@Phone.BSP.Sensor, 2014/12/30, remove unused sensor. */
+		/* Ambient light and proximity sensor */
+		avago@39 { 
 			compatible = "avago,apds9900";
 			reg = <0x39>;
-			//pinctrl-names = "default","sleep";
-			//pinctrl-0 = <&apds99xx_default>;
-			//pinctrl-1 = <&apds99xx_sleep>;
+			pinctrl-names = "default","sleep";
+			pinctrl-0 = <&apds99xx_default>;
+			pinctrl-1 = <&apds99xx_sleep>;
 			interrupt-parent = <&msm_gpio>;
-			interrupts = <113 0x2002>;
+			interrupts = <9 0x2002>;
 			vdd-supply = <&pm8916_l11>;
 			vio-supply = <&pm8916_l5>;
-			//avago,irq-gpio = <&msm_gpio 113 0x2002>;
-			avago,ps-threshold = <600>;
-			avago,ps-hysteresis-threshold = <500>;
-			avago,ps-pulse = <8>;
+			avago,irq-gpio = <&msm_gpio 9 0x2002>;
+			avago,ps-threshold = <1023>;
+			avago,ps-hysteresis-threshold = <1023>;
+			avago,ps-pulse = <0x10>;
 			avago,ps-pgain = <0>;
 			avago,als-B = <223>;
 			avago,als-C = <70>;
 			avago,als-D = <142>;
 			avago,ga-value = <48>;
+			sensor,vdd-gpio = <&msm_gpio 102 0x00>;   /* set gpio to control ex-ldo for vdd supply in 14005. */
 		};
 
 		/* LiuPing@Phone.BSP.Sensor, 2014/07/19, add for gsensor:lis3dh */
@@ -320,7 +332,9 @@
 			sensor,vdd-gpio = <&msm_gpio 102 0x00>;   /* set gpio to control ex-ldo for vdd supply in 14005. */
 			/* stk,use-fir; */
 		};	
-		
+
+		/* LiuPing@Phone.BSP.Sensor, 2014/12/30, remove unused sensor. */
+		/*
 		akm@c {
 			compatible = "ak,ak8963";
 			reg = <0x0c>;
@@ -329,11 +343,11 @@
 			pinctrl-1 = <&ak8963_sleep>;
 			interrupt-parent = <&msm_gpio>;
 			interrupts = <69 0x2>;
-			/*vdd-supply = <&pm8916_l17>;hufeng delete because camera use this ldo*/
+			vdd-supply = <&pm8916_l17>;
 			vio-supply = <&pm8916_l6>;
 			ak,layout = <0x6>;
 			ak,auto-report;
-		};
+		};*/
 
 	};
 
@@ -602,7 +616,7 @@
 	interrupt-names = "hc_irq", "pwr_irq", "status_irq";
 	cd-gpios = <&msm_gpio 38 0x1>;
 
-	status = "ok";
+	status = "disabled";
 };
 
 &pm8916_chg {
@@ -806,7 +820,7 @@
 		status = "ok";
 		qcom,mode = <1>; /* QPNP_PIN_MODE_DIG_OUT */
 		qcom,pull = <5>; /* QPNP_PIN_PULL_NO */
-		qcom,vin-sel = <2>; /* QPNP_PIN_VIN2 */
+		qcom,vin-sel = <3>; /* QPNP_PIN_VIN3 */
 		/*qcom,src-sel = <2>;  QPNP_PIN_SEL_FUNC_1 */
 		/*qcom,master-en = <1>;*/
 	};

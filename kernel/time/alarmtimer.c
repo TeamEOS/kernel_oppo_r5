@@ -30,7 +30,8 @@
 /* wenxian.zhen@Onlinerd.Driver, 2014/08/01  Modify for power off alarm timing */
 #define ALARM_DELTA 120
 #else /*power off alarm timing*/
-#define ALARM_DELTA 40	
+//#define ALARM_DELTA 40
+#define ALARM_DELTA 50 //John.Xu modified for shutdown alarm sound block several seconds 2015.01.23
 #endif /*power off alarm timing*/
 
 /**

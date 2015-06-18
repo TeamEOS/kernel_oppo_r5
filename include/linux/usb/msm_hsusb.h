@@ -429,6 +429,9 @@ struct msm_otg {
 	atomic_t set_fpr_with_lpm_exit;
 	int async_int;
 	unsigned cur_power;
+	#ifdef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	struct workqueue_struct *otg_wq;
+	#endif
 	struct delayed_work chg_work;
 	struct delayed_work id_status_work;
 	struct delayed_work suspend_work;
@@ -497,6 +500,8 @@ struct msm_otg {
 	unsigned int voltage_max;
 	unsigned int current_max;
 	unsigned int usbin_health;
+	//lfc add for otg switch
+	bool	otg_switch;
 
 	dev_t ext_chg_dev;
 	struct cdev ext_chg_cdev;
@@ -506,10 +511,23 @@ struct msm_otg {
 	bool ext_chg_active;
 	struct completion ext_chg_wait;
 	struct pinctrl *phy_pinctrl;
+	struct pinctrl_state *usb_id_pinctrl_default;
+	struct pinctrl_state *usb_id_pinctrl_active;
+	struct pinctrl_state *usb_id_pinctrl_sleep;
 	int ui_enabled;
 	bool pm_done;
 	struct qpnp_vadc_chip	*vadc_dev;
 	int ext_id_irq;
+	#if 0//def VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	struct mutex *inputbits_mutex; 
+	#endif
+	#ifdef VENDOR_EDIT /*dengnw@BSP.drv add QCOM patch for OTG 20150115*/
+	wait_queue_head_t      host_suspend_wait;
+	#endif
+    #ifdef VENDOR_EDIT
+    /*chaoying.chen@EXP.BaseDrv.otg,2014/12/09 Added for 14061 otg */
+    struct mutex otg_mutex_lock;
+    #endif /*VENDOR_EDIT*/
 };
 
 struct ci13xxx_platform_data {
@@ -699,3 +717,10 @@ static inline int msm_dwc3_reset_dbm_ep(struct usb_ep *ep)
 #endif
 #endif
 
+#ifdef VENDOR_EDIT
+/*chaoying.chen@EXP.BaseDrv.otg,2014/12/09  Added for 14061 otg */
+extern void oppo_otg_id_status(int id_state);
+extern void oppo_headset_detect_plug(int status);
+extern atomic_t otg_id_state;
+extern atomic_t headset_status;
+#endif /*VENDOR_EDIT*/

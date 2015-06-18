@@ -511,9 +511,9 @@ static int mmc3416x_check_device(struct mmc3416x_data *memsic)
 		return rc;
 
 	}
-
-	if (data != MMC3416X_PRODUCT_ID)
-		return -ENODEV;
+       printk(KERN_ERR"%s id:%d \n", __func__, data);
+       if (data != MMC3416X_PRODUCT_ID)
+               return -ENODEV;
 
 	return 0;
 }
@@ -947,15 +947,11 @@ static int mmc3416x_probe(struct i2c_client *client, const struct i2c_device_id 
 		goto out_register_classdev;
 	}
 
-       /* LiuPing@Phone.BSP.Sensor, 2014/09/28. If the vdd-LDO11 disable , then enable it will fail . so always open power in 14005. */
-       if (!is_project(OPPO_14005))
-       {
-        	res = mmc3416x_power_set(memsic, false);
-        	if (res) {
-        		dev_err(&client->dev, "Power off failed\n");
-        		goto out_power_set;
-        	}
-       }
+    	res = mmc3416x_power_set(memsic, false);
+    	if (res) {
+    		dev_err(&client->dev, "Power off failed\n");
+    		goto out_power_set;
+    	}
 
 	memsic->poll_interval = MMC3416X_DEFAULT_INTERVAL_MS;
 
@@ -981,11 +977,9 @@ out_register_classdev:
 	input_unregister_device(memsic->idev);
 out_init_input:
 out_check_device:
-       /* LiuPing@Phone.BSP.Sensor, 2014/09/28. If the vdd-LDO11 disable , then enable it will fail . so always open power in 14005. */
-       if (!is_project(OPPO_14005))
-       {
-	    mmc3416x_power_deinit(memsic);
-       }
+
+	mmc3416x_power_deinit(memsic);
+
 out:
 	return res;
 }

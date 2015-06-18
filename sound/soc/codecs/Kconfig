@@ -554,6 +554,5 @@ config SND_SOC_MSM_HDMI_CODEC_RX
         supports hdmi panel.
 
 #John.Xu add for ts4621 2014.10.24
-#hanqing.wang delete for open code 2014.12.19
-#config SND_SOC_TS4621
-	#tristate
+config SND_SOC_TS4621
+	tristate

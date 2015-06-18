@@ -186,6 +186,10 @@ static void mainboard_verify(void)
 			mainboard_info.version = "15";
 			mainboard_info.manufacture = "T3-T4";
 			break;
+		case HW_VERSION__16:
+			mainboard_info.version = "16";
+			mainboard_info.manufacture = "T4-T5";
+			break;
 		default:	
 			mainboard_info.version = "UNKOWN";
 			mainboard_info.manufacture = "UNKOWN";

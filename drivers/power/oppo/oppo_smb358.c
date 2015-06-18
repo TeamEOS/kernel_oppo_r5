@@ -13,7 +13,7 @@
 *******************************************************************************/
 
 #define OPPO_SMB358_PAR
-#include <oppo_inc.h>
+#include "oppo_inc.h"
 
 
 int smb358_get_prop_charge_type(struct opchg_charger *chip)
@@ -115,6 +115,69 @@ int smb358_get_otg_regulator_is_enable(struct regulator_dev *rdev)
     
     return (reg & CMD_A_OTG_ENABLE_BIT) ? 1 : 0;
 }
+#if 1
+int smb358_set_otg_enable(void)
+{
+    int rc = 0;
+
+	if(opchg_chip == NULL)
+	{
+		return rc;
+	}
+	
+    rc = opchg_masked_write(opchg_chip, CMD_A_REG, CMD_A_OTG_ENABLE_BIT, CMD_A_OTG_ENABLE_BIT);
+	if (rc) {
+        pr_debug("Couldn't enable  OTG mode rc=%d\n", rc);
+    }
+	else
+	{
+		pr_debug("smb358_set_otg_enable\n");
+	}
+
+	return rc;
+}
+
+int smb358_set_otg_disable(void)
+{
+    int rc = 0;
+	
+    if(opchg_chip == NULL)
+	{
+		return rc;
+	}    
+    rc = opchg_masked_write(opchg_chip, CMD_A_REG, CMD_A_OTG_ENABLE_BIT, 0);
+
+	if (rc) {
+        pr_debug("Couldn't disable OTG mode rc=%d\n", rc);
+	}
+	else
+	{
+		pr_debug("smb358_set_otg_disable\n");
+	}
+	
+    return rc;
+}
+
+int smb358_get_otg_enable(void)
+{
+    int rc = 0;
+    u8 reg = 0;
+
+	if(opchg_chip == NULL)
+	{
+		return rc;
+	}
+	rc = opchg_read_reg(opchg_chip, CMD_A_REG, &reg);
+    if (rc) {
+        pr_debug("Couldn't read OTG enable bit rc=%d\n", rc);
+    }
+	else
+	{
+		pr_debug("smb358_get_otg_enable read OTG enable bit =%d\n", reg);
+    }
+	return rc;
+}
+#endif
 
 int smb358_set_charging_disable(struct opchg_charger *chip, bool disable)
 {
@@ -230,7 +293,12 @@ int smb358_set_float_voltage(struct opchg_charger *chip, int vfloat_mv)
         return -EINVAL;
     }
 
-	if((!chip->batt_authen) && (opchg_battery_temp_region_get(chip) == CV_BATTERY_TEMP_REGION__NORMAL)){
+	#if 0
+	if((!chip->batt_authen) && (opchg_battery_temp_region_get(chip) == CV_BATTERY_TEMP_REGION__NORMAL))
+	#else
+	if((!chip->batt_authen) && (chip->charging_opchg_temp_statu == OPCHG_CHG_TEMP_NORMAL))
+	#endif
+	{
 		vfloat_mv = chip->non_standard_vfloat_mv;
 	}
 		
@@ -351,6 +419,21 @@ static int smb358_set_recharge_and_inhibit(struct opchg_charger *chip)
 	return 0;
 }
 
+int smb358_aicl_enable(struct opchg_charger *chip, bool enable)
+{
+	int rc;
+
+	pr_err("%s enable:%d\n",__func__,enable);
+	rc = opchg_masked_write(chip, VARIOUS_FUNC_REG,AICL_EN_MASK,
+			enable ? AICL_EN_BIT : AICL_DISEN_BIT);
+	if (rc) {
+		dev_err(chip->dev,
+			"Couldn't set aicl enable rc = %d\n", rc);
+		return rc;
+	}
+	return 0;
+}
+
 int smb358_set_input_chg_current(struct opchg_charger *chip, int current_ma, bool aicl)
 {
     int i, rc = 0; 
@@ -363,7 +446,8 @@ int smb358_set_input_chg_current(struct opchg_charger *chip, int current_ma, boo
         dev_dbg(chip->dev, "%s: Charger in autonmous mode\n", __func__);
         return 0;
     }
-
+	smb358_aicl_enable(chip, false);
+	smb358_aicl_enable(chip, true);
     #if 0
     /* Only set suspend bit when chg present and current_ma = 2 */
     if (current_ma == 2 && chip->chg_present) {
@@ -731,6 +815,7 @@ int smb358_chg_uv(struct opchg_charger *chip, u8 status)
 
 	opchg_inout_charge_parameters(chip);
 	opchg_switch_to_usbin(chip,!status);
+
     if (status == 0) {
         chip->g_chg_in = 1;
 		if(chip->g_is_wakeup == 0){ //if awake not be lock,lock it here else do nothing
@@ -749,8 +834,7 @@ int smb358_chg_uv(struct opchg_charger *chip, u8 status)
         chip->chg_present = true;
         dev_dbg(chip->dev, "%s updating usb_psy present=%d", __func__, chip->chg_present);
         power_supply_set_supply_type(chip->usb_psy, POWER_SUPPLY_TYPE_USB);
-        power_supply_set_present(chip->usb_psy, chip->chg_present);
-		
+        power_supply_set_present(chip->usb_psy, chip->chg_present);	
 	}
 	
     if (status != 0) {
@@ -774,6 +858,9 @@ int smb358_chg_uv(struct opchg_charger *chip, u8 status)
 	
     power_supply_changed(chip->usb_psy);
 	
+	if(is_project(OPPO_15005)){
+		schedule_work(&chip->opchg_modify_tp_param_work);
+	}
     dev_dbg(chip->dev, "chip->chg_present = %d\n", chip->chg_present);
     
     return 0;
@@ -804,8 +891,8 @@ int smb358_fast_chg(struct opchg_charger *chip, u8 status)
     
     power_supply_changed(&chip->batt_psy);
     dev_dbg(chip->dev, "%s\n", __func__);
-	if(status & STATUS_FAST_CHARGING)
-			chip->batt_full = false;
+	//if(status & STATUS_FAST_CHARGING)
+	//		chip->batt_full = false;
     return 0;
 }
 

@@ -648,57 +648,65 @@ static ssize_t sled_grpfreq_store(struct device *dev, struct device_attribute *a
 static ssize_t sled_blink_store(struct device *dev, struct device_attribute *attr,
 			 const char *buf, size_t count)
 {
-    unsigned long value = simple_strtoul(buf, NULL, 10);
-    u8 t123, t4;
+	unsigned long value = simple_strtoul(buf, NULL, 10);
+	u8 t13,t2,t4;
+	if(shine_debug) {
+		printk("shineled----%s:   buf = %s: count = %d\n", __func__, buf, count);
+		printk("shineled----%s:   totalMS = %d: onMS = %d\n", __func__, totalMS, onMS);
 
-    if (shine_debug) {
-        printk("shineled----%s:   buf = %s: count = %d\n", __func__, buf, count);
-        printk("shineled----%s:   totalMS = %d: onMS = %d\n", __func__, totalMS, onMS);
-    }
-    //if (value == 1 && totalMS && onMS)
-    if (~(~value) && totalMS && onMS) {
-        SN3193_TurnOnRGB_sled();	//turn on the RGB color
+	}
+	//if(value == 1 && totalMS && onMS)
+	if(~(~value) && totalMS && onMS)
+	{
 
-        SN3193_enable_sled(1);
-        SN3193_config_feature_sled(0);
-        SN3193_workmod_sled(1);		//select the program mode, for breath effect.
+		SN3193_TurnOnRGB_sled();	//turn on the RGB color
+			
+		SN3193_enable_sled(1);
+		SN3193_config_feature_sled(0);
+		SN3193_workmod_sled(1);		//select the program mode, for breath effect.
 
-        SN3193_setCurrent_sled(0x01);
+		SN3193_setCurrent_sled(0x01);
 
-        t123 = get_register_t(onMS / 3);
-        t4 = get_register_t(totalMS - onMS) + 1;
+		t13 = get_register_t((onMS * 4) / 9);
+		t2 = get_register_t(onMS  / 9);
+		t4 = get_register_t(totalMS - onMS) + 1;
 
-        if (shine_debug) {
-            printk("shineled----%s:   t123 = %d: t4 = %d\n", __func__, t123, t4);
-        }
-        SN3193_SetBreathTime_sled(1, 0, t123, t123 + 1, t123, t4);
-        SN3193_SetBreathTime_sled(2, 0, t123, t123 + 1, t123, t4);
-        SN3193_SetBreathTime_sled(3, 0, t123, t123 + 1, t123, t4);
+		if(shine_debug) {
+			printk("shineled----%s:   t13 = %d: t2 = %d t4 = %d\n", __func__, t13, t2,t4);
+		}
+		SN3193_SetBreathTime_sled(1,0,t13,t2,t13, t4);
+		SN3193_SetBreathTime_sled(2,0,t13,t2,t13, t4);
+		SN3193_SetBreathTime_sled(3,0,t13,t2,t13, t4);
 
-        SN3193_TimeUpdate_sled();	//start breath	
+		SN3193_TimeUpdate_sled();	//start breath	
 
-        SN3193_upData_sled();		//turn on the light
-    }else {
-        if (shine_debug) {
-            printk("shineled----%s:   color_R = %d: color_G = %d: color_B = %d,\n", __func__, color_R, color_G,color_B);
-        }
-
-        if((color_R + color_G + color_B) == 0) {
-            //close
-            SN3193_TurnOffOut_sled();
-            SN3193_enable_sled(0);
-        } else {
-            SN3193_TurnOnRGB_sled();	//turn on the RGB color
-            //light aways
-            SN3193_enable_sled(1);			
-            SN3193_config_feature_sled(0);	
-            SN3193_workmod_sled(0); 	//select the RGB mode, 		
-            SN3193_setCurrent_sled(0x01);
-            SN3193_upData_sled();		//turn on the light
-        }
-    }
-
-    return count;
+		SN3193_upData_sled();		//turn on the light
+		
+	}
+	else
+	{
+		if(shine_debug) {
+			printk("shineled----%s:   color_R = %d: color_G = %d: color_B = %d,\n", __func__, color_R, color_G,color_B);
+		}
+		if(color_R + color_G + color_B == 0)
+		{
+			//close
+			SN3193_TurnOffOut_sled();
+			SN3193_enable_sled(0);
+		}
+		else
+		{
+			SN3193_TurnOnRGB_sled();	//turn on the RGB color
+			//light aways
+			SN3193_enable_sled(1);			
+			SN3193_config_feature_sled(0);	
+			SN3193_workmod_sled(0); 	//select the RGB mode, 		
+			SN3193_setCurrent_sled(0x01);
+			SN3193_upData_sled();		//turn on the light
+		}
+	}
+	
+	return count;
 }
 /*OPPO yuyi add */
 

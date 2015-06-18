@@ -200,7 +200,6 @@ static int msm_iommu_parse_dt(struct platform_device *pdev,
 	for_each_child_of_node(pdev->dev.of_node, child)
 		drvdata->ncb++;
 
-
 	ret = of_property_read_string(pdev->dev.of_node, "label",
 				      &drvdata->name);
 	if (ret)

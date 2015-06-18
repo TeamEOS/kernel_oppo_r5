@@ -16,19 +16,22 @@
 
 &soc {
 	i2c@78b9000 { /* BLSP1 QUP5 */
+	
 		synaptics@2c {/*chenggang.li add for TP */
 			compatible = "synaptics,oppo";
 			reg = <0x2c>;
 			interrupt-parent = <&msm_gpio>;
 			interrupts = <13 0x2008>;
 			synaptics,irq-gpio = <&msm_gpio 13 0x2008>;
-			/*synaptics,id1-gpio = <&msm_gpio 12 0x00>;
-			synaptics,id2-gpio = <&msm_gpio 66 0x00>;
+			synaptics,id1-gpio = <&msm_gpio 51 0x00>;
+			/*synaptics,id2-gpio = <&msm_gpio 66 0x00>;
 			synaptics,id3-gpio = <&msm_gpio 119 0x00>;*/
-			/*synaptics,reset-gpio = <&msm_gpio 25 0x00>;*/
-			/*synaptics,enable1v814045-gpio = <&msm_gpio 23 0x00>;*/    
-			/*vdd_2v8-supply = <&pm8916_l11>;*/
-			/*vcc_i2c_1v8-supply = <&pm8916_l5>;*/
+			pinctrl-names = "default";
+			pinctrl-0 = <&ts_id1_default   &ts_int_active>;
+			synaptics,reset-gpio = <&msm_gpio 25 0x00>;
+			synaptics,enable1v814045-gpio = <&msm_gpio 23 0x00>;
+			vdd_2v8-supply = <&pm8916_l11>;
+			vcc_i2c_1v8-supply = <&pm8916_l16>;
 			synaptics,max-num-support = <10>;
 			synaptics,max-x-point = <10>;
 			synaptics,max-y-point = <1745>;
@@ -40,6 +43,31 @@
 			synaptics,disable-gpios;
 			//synaptics,display-coords = <0 0 1079 1919>;
 			synaptics,panel-coords = <0 0 1079 2084>;
+		};
+		
+		synaptics14045@20 {/*tong.han add for TP */
+			compatible = "oppo,synaptics14045";
+			reg = <0x20>;
+			interrupt-parent = <&msm_gpio>;
+			interrupts = <13 0x2008>;
+			synaptics,irq-gpio = <&msm_gpio 13 0x2008>;
+			synaptics,id1-gpio = <&msm_gpio 51 0x00>;
+			/*synaptics,id2-gpio = <&msm_gpio 66 0x00>;
+			synaptics,id3-gpio = <&msm_gpio 119 0x00>;*/
+			pinctrl-names = "default";
+			pinctrl-0 = <&ts_id1_default   &ts_int_active>;
+			//synaptics,reset-gpio = <&pm8916_gpios 2 0x00>;
+			synaptics,max-num-support = <10>;
+			synaptics,max-x-point = <10>;
+			synaptics,max-y-point = <1745>;
+			synaptics,button-map= <160 226 1400>;//width-height-y.position
+			synaptics,tx-rx-num = <28 18>;
+			synaptics,display-coords = <720 1280>;
+			vdd_2v8-supply = <&pm8916_l11>;
+			vcc_i2c_1v8-supply = <&pm8916_l16>;
+			synaptics,i2c-pull-up;
+			synaptics,power-down;
+			synaptics,disable-gpios;
 		};
 		/* OPPO 2014-09-08 Xiaori.Yuan add begin for backlight lm3630 */
 		ti_lm3630_bl@38 {
@@ -70,57 +98,44 @@
 			//qcom,fast_charger-gpio = <&msm_gpio 23 0x01>;			/*gpio fast_charger pin connects to.*/
 			//qcom,usbphy_on-gpio = <&msm_gpio 38 0x01>;			/*gpio fast_charger pin connects to.*/
 			//qcom,chg-valid-gpio= <&pm8941_gpios 0x02 0x01>;	/* */
-			qcom,fast-charger-project-sign= <0>;						/* fastcharger project sign*/	
-			qcom,input-current-max-ma = <1500>;						/*Maximum input current.*/
 			//qcom,charging-disabled;											/*This can then be overriden writing the the module parameter "charging_disabled"*/
 			//qcom,chg-autonomous-mode;											/*it indicates that the charger is configured for autonomous operation*/
 			qcom,disable-apsd;										/*APSD */
 			qcom,bms-psy-name = "bms";									/*The main BMS device name */
 			//qcom,iterm-disabled;
-			qcom,iterm-ma = <150>;									/*Charge termination current*/
-			qcom,recharge-mv = <100>;									/* The minimum voltage drop for recharger*/
 			qcom,charger-inhibit-disabled;							/* Charge Inhibit  */
 			qcom,chg-vadc = <&pm8916_vadc>;							/* Corresponding VADC device's phandle.*/
 			qcom,chg-adc_tm = <&pm8916_adc_tm>;						/* set recurring measurements and receive notification for batt_therm. */
 
-			//qcom,hot_bat_decidegc = <570>;							/* hot battery temperature in decidegC = 55*/
-			//qcom,warm_bat_decidegc = <450>;							/* Warm battery temperature in decidegC= 45*/
-			//qcom,pre_cool_bat_decidegc = <50>;						/* pre_cool battery temperature in decidegC= 5*/
-			//qcom,cool_bat_decidegc = <0>;								/* cool battery temperature in decidegC= 0*/
-			//qcom,cold_bat_decidegc = <100>;							/* cold battery temperature in decidegC= -10*/
-			//qcom,bat_present_decidegc = <200>;						/* battery decidegc temperature in decidegC= -20*/
-
-			//qcom,temp_cool_vfloat_mv = <4000>;						/* cool battery temperature cutoff voltage =4.0V (-10~0) */
-			//qcom,temp_cool_fastchg_current_ma = <200>;				/* cool battery temperature fast current   =0.25A(-10~0)*/
-			//qcom,temp_pre_cool_vfloat_mv = <4200>;					/* pre_cool battery temperature cutoff voltage =4.2V (0~5)*/
-			//qcom,temp_pre_cool_fastchg_current_ma = <600>;			/* pre_cool battery temperature fast current   =0.75A (0~5)*/
-			//qcom,temp_warm_vfloat_mv = <4100>;						/* warn battery temperature cutoff voltage =4.1V (5~45)*/
-			//qcom,temp_warm_fastchg_current_ma = <600>;				/* warn battery temperature fast current   =0.75A (5~45)*/
-			//qcom,temp_hot_vfloat_mv = <4100>;							/* hot battery temperature cutoff voltage =4.1V (45~55)*/
-			//qcom,temp_hot_fastchg_current_ma = <600>;					/* hot battery temperature fast current   =0.75A (45~55)*/
-
-			qcom,bat_present_decidegc = <200>;					/*-20*/	
-			qcom,cold_bat_decidegc = <100>;						/*-10~0*/
-			qcom,temp_cold_vfloat_mv = <4000>;
-			qcom,temp_cold_fastchg_current_ma = <200>;			
-			
-			qcom,cool_bat_decidegc = <0>;							/*0~15*/
-			qcom,temp_cool_vfloat_mv = <4352>;
-			qcom,temp_cool_fastchg_current_ma = <300>;			
-			
-			qcom,little_cool_bat_decidegc = <150>;				/*15~20*/
-			qcom,temp_little_cool_vfloat_mv = <4352>;
-			qcom,temp_little_cool_fastchg_current_ma = <600>;			
-			
-			qcom,normal_bat_decidegc = <200>;						/*20~45*/	
-			qcom,float-voltage-mv = <4352>;							/* from constant current charging to constant voltage chargeing for voltage threshold*/
+			qcom,iterm-ma = <150>;									/*Charge termination current*/
+			qcom,recharge-mv = <100>;									/* The minimum voltage drop for recharger*/
+			qcom,fast-charger-project-sign= <0>;						/* fastcharger project sign*/	
 			qcom,fastchg-current-max-ma = <1500>;						/*Maximum fast charging current.*/
-			
-			qcom,warm_bat_decidegc = <450>;						/*45~55*/
-			qcom,temp_warm_vfloat_mv = <4100>;
-			qcom,temp_warm_fastchg_current_ma = <600>;
-			
-			qcom,hot_bat_decidegc = <570>;						/*45~55*/						
+			qcom,input-current-max-ma = <1500>;						/*Maximum input current.*/
+			qcom,float-voltage-mv = <4320>;							/* from constant current charging to constant voltage chargeing for voltage threshold*/
+
+			qcom,hot_bat_decidegc = <550>;							/* hot battery temperature in decidegC = 55*/
+			qcom,temp_hot_vfloat_mv = <4100>;							/* hot battery temperature cutoff voltage =4.1V (45~55)*/
+			qcom,temp_hot_fastchg_current_ma = <720>;					/* hot battery temperature fast current   =0.75A (45~55)*/
+
+			qcom,warm_bat_decidegc = <450>;							/* Warm battery temperature in decidegC= 45*/
+			qcom,temp_warm_vfloat_mv = <4320>;						/* warn battery temperature cutoff voltage =4.1V (5~45)*/
+			qcom,temp_warm_fastchg_current_ma = <1500>;				/* warn battery temperature fast current   =0.75A (5~45)*/
+
+			qcom,pre_normal_bat_decidegc = <200>;						/* pre_cool battery temperature in decidegC= 5*/	
+			qcom,temp_pre_normal_vfloat_mv = <4320>;						/* warn battery temperature cutoff voltage =4.1V (5~45)*/
+			qcom,temp_pre_normal_fastchg_current_ma = <1200>;			/* warn battery temperature fast current   =0.75A (5~45)*/
+
+			qcom,pre_cool_bat_decidegc = <100>;						/* pre_cool battery temperature in decidegC= 5*/	
+			qcom,temp_pre_cool_vfloat_mv = <4200>;					/* pre_cool battery temperature cutoff voltage =4.2V (0~5)*/
+			qcom,temp_pre_cool_fastchg_current_ma = <500>;			/* pre_cool battery temperature fast current   =0.75A (0~5)*/
+
+			qcom,cool_bat_decidegc = <0>;								/* cool battery temperature in decidegC= 0*/
+			qcom,temp_cool_vfloat_mv = <4000>;						/* cool battery temperature cutoff voltage =4.0V (-10~0) */
+			qcom,temp_cool_fastchg_current_ma = <300>;				/* cool battery temperature fast current   =0.25A(-10~0)*/
+
+			qcom,cold_bat_decidegc = <100>;							/* cold battery temperature in decidegC= -10*/
+			qcom,bat_present_decidegc = <200>;						/* battery decidegc temperature in decidegC= -20*/
 			//qcom,non_standard_vfloat_mv = <4000>;
 			//qcom,non_standard_fastchg_current_ma = <512>;
 
@@ -227,7 +242,11 @@
 	};
 
 	i2c@78b6000 { /* BLSP1 QUP2 */
-		mpu6050@68 { /* Gyroscope and accelerometer sensor combo */
+
+	       /* LiuPing@Phone.BSP.Sensor, 2014/12/30, remove unused sensor. */
+	       /* Gyroscope and accelerometer sensor combo */
+	       /*
+		mpu6050@68 { 
 			compatible = "invn,mpu6050";
 			reg = <0x68>;
 			pinctrl-names = "mpu_default","mpu_sleep";
@@ -240,7 +259,7 @@
 			vi2c-supply = <&pm8916_l6>;
 			invn,gpio-int = <&msm_gpio 115 0x2>;
 			invn,place = "Portrait Down Back Side";
-		};
+		};*/
 
 		avago@39 { /* Ambient light and proximity sensor */
 			compatible = "avago,apds9900";
@@ -260,7 +279,7 @@
 			avago,als-B = <223>;
 			avago,als-C = <70>;
 			avago,als-D = <142>;
-			avago,als-gain = <160>;   // the true: lux = lux*als_gain/100.
+			avago,als-gain = <80>;   // the true: lux = lux*als_gain/100.
 			avago,ga-value = <48>;
 		};
 
@@ -450,12 +469,21 @@
 	qcom,vdd-io-voltage-level = <1800000 2950000>;
 	qcom,vdd-io-current-level = <200 50000>;
 
-	pinctrl-names = "active", "sleep";
-	pinctrl-0 = <&sdc2_clk_on &sdc2_cmd_on &sdc2_data_on &sdc2_cd_on>;
-	pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off &sdc2_cd_off>;
-
+	//#ifndef VENDOR_EDIT //Jianfeng.Qiu@BSP.Drv, 2014-8-13, Modify for delete card hotplug
+	//pinctrl-names = "active", "sleep";
+	//pinctrl-0 = <&sdc2_clk_on &sdc2_cmd_on &sdc2_data_on &sdc2_cd_on>;
+	//pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off &sdc2_cd_off>;
+	//#else
+	pinctrl-names = "default", "active", "sleep";
+	pinctrl-0 = <&sdc2_cd_on &sim1_cd_on &sim2_cd_on>;
+	pinctrl-1 = <&sdc2_clk_on &sdc2_cmd_on &sdc2_data_on &sdc2_cd_on>;
+	pinctrl-2 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off &sdc2_cd_off>;
+	//#endif
+	
 	#address-cells = <0>;
 	interrupt-parent = <&sdhc_2>;
+	
+	//#ifndef VENDOR_EDIT //Jianfeng.Qiu@BSP.Drv, 2014-8-13, Modify for delete card hotplug
 	interrupts = <0 1 2>;
 	#interrupt-cells = <1>;
 	interrupt-map-mask = <0xffffffff>;
@@ -467,6 +495,16 @@
 	//cd-gpios = <&msm_gpio 38 0x1>;
 	//#else
 	cd-gpios = <&msm_gpio 38 0x0>;
+	//#endif
+	//#else
+	/*	
+	interrupts = <0 1>;
+	#interrupt-cells = <1>;
+	interrupt-map-mask = <0xffffffff>;
+	interrupt-map = <0 &intc 0 125 0
+			1 &intc 0 221 0>;
+	interrupt-names = "hc_irq", "pwr_irq";
+	*/
 	//#endif
 	status = "ok";
 };
@@ -520,6 +558,8 @@
 /*Xiaori.Yuan add for lcd*/
 #include "dsi-panel-jdi-720p-video.dtsi"
 #include "dsi-panel-oppo14045-720p-cmd.dtsi"
+#include "dsi-panel-oppo14017-720p-cmd.dtsi"
+#include "dsi-panel-oppo14017synaptics-720p-video.dtsi"
 /*Xiaori.Yuan add end*/
 &mdss_mdp {
 	qcom,mdss-pref-prim-intf = "dsi";
@@ -573,12 +613,14 @@
 	pinctrl-1 = <&mdss_dsi_suspend &mdss_te_suspend>;
 	qcom,dsi-pref-prim-pan = <&dsi_jdi_720_vid>;
 
-	qcom,platform-enable-gpio = <&msm_gpio 23 0>;
+	qcom,platform-enable-gpio = <&msm_gpio 97 0>;
+	qcom,platform-enn-enable-gpio = <&msm_gpio 23 0>;
 	qcom,platform-reset-gpio = <&msm_gpio 25 0>;
 	/*qcom,platform-te-gpio = <&msm_gpio 24 0>;
 	qcom,platform-bklight-en-gpio = <&msm_gpio 98 0>;*/
 	/*Xiaori.Yuan add for ESD test*/
 	vdddc_3v3-supply = <&pm8916_l11>;
+	vddf_2v5-supply = <&pm8916_l16>;
 	/*add end*/
 };
 /*OPPO Xiaori.Yuan modified end*/
