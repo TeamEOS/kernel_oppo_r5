@@ -82,9 +82,34 @@ static struct platform_driver ram_console_driver = {
 	},
 };
 
+#ifdef VENDOR_EDIT
+/* Add for ram_console device */
+static struct platform_device *ram_console_dev;
+#endif
+
 static int __init ram_console_module_init(void)
 {
+#ifndef VENDOR_EDIT
 	return platform_driver_probe(&ram_console_driver, ram_console_probe);
+#else
+    int ret;
+    
+    ram_console_dev = platform_device_alloc("ram_console", -1);
+    if (!ram_console_dev)
+        return -ENOMEM;
+    
+    ret = platform_device_add(ram_console_dev);
+    if (ret != 0) {
+        platform_device_put(ram_console_dev);
+        return ret;
+    }
+    
+    ret = platform_driver_register(&ram_console_driver);
+    if (ret != 0)
+        platform_device_unregister(ram_console_dev);
+    
+    return ret;
+#endif
 }
 
 #ifndef CONFIG_PRINTK
@@ -102,8 +127,11 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 	char *str;
 	int ret;
 
-	if (dmesg_restrict && !capable(CAP_SYSLOG))
-		return -EPERM;
+#ifndef VENDOR_EDIT
+    /* Delete for solve the problem that can not read /proc/last_kmsg right */
+    if (dmesg_restrict && !capable(CAP_SYSLOG))
+        return -EPERM;
+#endif
 
 	/* Main last_kmsg log */
 	if (pos < old_log_size) {

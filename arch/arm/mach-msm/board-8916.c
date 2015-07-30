@@ -40,7 +40,7 @@ static struct kobject *systeminfo_kobj;
 
 #ifdef VENDOR_EDIT
 /* Add for ram_console device */
-#include <linux/persistent_ram.h>
+#include <linux/pstore_ram.h>
 #endif
 
 static struct kobject *systeminfo_kobj;
@@ -225,10 +225,10 @@ void __init msm8916_add_drivers(void)
 #ifdef VENDOR_EDIT
 /* Add for ram_console device */
 static struct persistent_ram_descriptor msm_prd[] __initdata = {
-    {
-        .name = "ram_console",
-        .size = SZ_1M,
-    },
+	{
+		.name = "ram_console",
+		.size = SZ_1M,
+	},
 };
 
 static struct persistent_ram msm_pr __initdata = {
@@ -259,6 +259,11 @@ static void __init msm8916_init(void)
 	if (socinfo_init() < 0)
 		pr_err("%s: socinfo_init() failed\n", __func__);
 
+#ifdef VENDOR_EDIT
+    /* Add for ram_console device */
+    persistent_ram_early_init(&msm_pr);
+#endif
+
 #ifdef VENDOR_EDIT		
 	/* OPPO 2013.07.09 hewei add begin for factory mode*/
 	board_mfg_mode_init();
@@ -284,10 +289,6 @@ static void __init msm8916_init(void)
 		rc = sysfs_create_group(systeminfo_kobj, &attr_group);
 	/* OPPO 2013.07.09 hewei add end */
 #endif //VENDOR_EDIT
-#ifdef VENDOR_EDIT
-    /* Add for ram_console device */
-    ram_console_late_init();
-#endif
 }
 
 static const char *msm8916_dt_match[] __initconst = {
