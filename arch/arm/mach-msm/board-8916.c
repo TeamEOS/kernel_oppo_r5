@@ -38,6 +38,11 @@ static struct kobject *systeminfo_kobj;
 /* OPPO 2013.07.09 hewei add begin for factory mode*/
 #include <linux/gpio.h>
 
+#ifdef VENDOR_EDIT
+/* Add for ram_console device */
+#include <linux/persistent_ram.h>
+#endif
+
 static struct kobject *systeminfo_kobj;
 #if 0
 enum{
@@ -217,6 +222,23 @@ void __init msm8916_add_drivers(void)
 	msm_pm_sleep_status_init();
 }
 
+#ifdef VENDOR_EDIT
+/* Add for ram_console device */
+static struct persistent_ram_descriptor msm_prd[] __initdata = {
+    {
+        .name = "ram_console",
+        .size = SZ_1M,
+    },
+};
+
+static struct persistent_ram msm_pr __initdata = {
+    .descs = msm_prd,
+    .num_descs = ARRAY_SIZE(msm_prd),
+    .start = PLAT_PHYS_OFFSET + SZ_1G + SZ_512M,
+    .size = SZ_1M,
+};
+#endif
+
 static void __init msm8916_init(void)
 {
 #ifdef VENDOR_EDIT
@@ -261,8 +283,11 @@ static void __init msm8916_init(void)
 	if (systeminfo_kobj)
 		rc = sysfs_create_group(systeminfo_kobj, &attr_group);
 	/* OPPO 2013.07.09 hewei add end */
-#endif //VENDOR_EDIT	
-
+#endif //VENDOR_EDIT
+#ifdef VENDOR_EDIT
+    /* Add for ram_console device */
+    ram_console_late_init();
+#endif
 }
 
 static const char *msm8916_dt_match[] __initconst = {
