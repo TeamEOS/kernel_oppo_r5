@@ -520,7 +520,7 @@ struct persistent_ram_zone *__persistent_ram_init(struct device *dev, bool ecc)
 		goto err;
 	}
 
-	persistent_ram_post_init(prz, ecc);
+	persistent_ram_post_init(prz, LINUX_VERSION_CODE, ecc);
 
 	return prz;
 err:
